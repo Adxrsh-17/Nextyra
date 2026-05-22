@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String             @id @default(uuid()) @db.Uuid
+  email             String             @unique
+  name              String?
+  age               Int?
+  weight_kg         Decimal?
+  height_cm         Decimal?
+  fitness_goal      String?            // 'hypertrophy', 'strength', 'fat_loss', 'endurance'
+  experience_level  String?            // 'beginner', 'intermediate', 'advanced'
+  xp                Int                @default(0)
+  level             Int                @default(1)
+  streak            Int                @default(0)
+  last_active_date  DateTime?          @db.Date
+  created_at        DateTime           @default(now()) @db.Timestamptz
+
+  workout_sessions  WorkoutSession[]
+  personal_records  PersonalRecord[]
+  body_metrics      BodyMetric[]
+  lifestyle_checkins LifestyleCheckin[]
+  xp_transactions   XpTransaction[]
+  user_badges       UserBadge[]
+  daily_missions    DailyMission[]
+  ai_workout_plans  AiWorkoutPlan[]
+  performance_flags PerformanceFlag[]
+
+  @@map("users")
+}
+
+model Exercise {
+  id                String             @id @default(uuid()) @db.Uuid
+  name              String
+  muscle_group      String             // 'chest', 'back', 'shoulders', 'legs', 'biceps', 'triceps', 'core'
+  secondary_muscles String[]
+  equipment         String?
+  difficulty        String?
+  video_url         String?
+
+  workout_sets      WorkoutSet[]
+  personal_records  PersonalRecord[]
+  performance_flags PerformanceFlag[]
+
+  @@map("exercises")
+}
+
+model WorkoutSession {
+  id                String             @id @default(uuid()) @db.Uuid
+  user_id           String             @db.Uuid
+  muscle_group      String?
+  started_at        DateTime?          @db.Timestamptz
+  completed_at      DateTime?          @db.Timestamptz
+  total_volume_kg   Decimal?
+  xp_earned         Int?
+  notes             String?
+
+  user              User               @relation(fields: [user_id], references: [id])
+  workout_sets      WorkoutSet[]
+
+  @@map("workout_sessions")
+}
+
+model WorkoutSet {
+  id                String             @id @default(uuid()) @db.Uuid
+  session_id        String             @db.Uuid
+  exercise_id       String             @db.Uuid
+  set_number        Int?
+  reps              Int?
+  weight_kg         Decimal?
+  is_pr             Boolean            @default(false)
+  completed_at      DateTime?          @db.Timestamptz
+
+  session           WorkoutSession     @relation(fields: [session_id], references: [id])
+  exercise          Exercise           @relation(fields: [exercise_id], references: [id])
+
+  @@map("workout_sets")
+}
+
+model PersonalRecord {
+  id                String             @id @default(uuid()) @db.Uuid
+  user_id           String             @db.Uuid
+  exercise_id       String             @db.Uuid
+  weight_kg         Decimal?
+  reps              Int?
+  estimated_1rm     Decimal?
+  achieved_at       DateTime?          @db.Timestamptz
+
+  user              User               @relation(fields: [user_id], references: [id])
+  exercise          Exercise           @relation(fields: [exercise_id], references: [id])
+
+  @@map("personal_records")
+}
+
+model BodyMetric {
+  id                String             @id @default(uuid()) @db.Uuid
+  user_id           String             @db.Uuid
+  weight_kg         Decimal?
+  body_fat_pct      Decimal?
+  chest_cm          Decimal?
+  waist_cm          Decimal?
+  arm_cm            Decimal?
+  leg_cm            Decimal?
+  recorded_at       DateTime           @default(now()) @db.Timestamptz
+
+  user              User               @relation(fields: [user_id], references: [id])
+
+  @@map("body_metrics")
+}
+
+model LifestyleCheckin {
+  id                String             @id @default(uuid()) @db.Uuid
+  user_id           String             @db.Uuid
+  energy_level      Int?               // 1-5
+  stress_level      Int?               // 1-5
+  sleep_quality     Int?               // 1-5
+  free_text         String?
+  checkin_date      DateTime           @default(now()) @db.Date
+
+  user              User               @relation(fields: [user_id], references: [id])
+
+  @@map("lifestyle_checkins")
+}
+
+model XpTransaction {
+  id                String             @id @default(uuid()) @db.Uuid
+  user_id           String             @db.Uuid
+  amount            Int?
+  reason            String?
+  created_at        DateTime           @default(now()) @db.Timestamptz
+
+  user              User               @relation(fields: [user_id], references: [id])
+
+  @@map("xp_transactions")
+}
+
+model Badge {
+  id                String             @id @default(uuid()) @db.Uuid
+  name              String             @unique
+  description       String?
+  icon              String?
+  condition_type    String?            // 'session_count', 'streak', 'pr_count', etc.
+  condition_value   Int?
+
+  user_badges       UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id                String             @id @default(uuid()) @db.Uuid
+  user_id           String             @db.Uuid
+  badge_id          String             @db.Uuid
+  earned_at         DateTime           @default(now()) @db.Timestamptz
+
+  user              User               @relation(fields: [user_id], references: [id])
+  badge             Badge              @relation(fields: [badge_id], references: [id])
+
+  @@map("user_badges")
+}
+
+model DailyMission {
+  id                String             @id @default(uuid()) @db.Uuid
+  user_id           String             @db.Uuid
+  description       String?
+  xp_reward         Int?
+  is_completed      Boolean            @default(false)
+  mission_date      DateTime           @default(now()) @db.Date
+
+  user              User               @relation(fields: [user_id], references: [id])
+
+  @@map("daily_missions")
+}
+
+model AiWorkoutPlan {
+  id                String             @id @default(uuid()) @db.Uuid
+  user_id           String             @db.Uuid
+  plan_json         Json?              // full weekly plan from Planner Agent
+  generated_at      DateTime           @default(now()) @db.Timestamptz
+  week_start        DateTime?          @db.Date
+
+  user              User               @relation(fields: [user_id], references: [id])
+
+  @@map("ai_workout_plans")
+}
+
+model PerformanceFlag {
+  id                String             @id @default(uuid()) @db.Uuid
+  user_id           String             @db.Uuid
+  exercise_id       String             @db.Uuid
+  flag_type         String?            // 'plateau', 'overtrained', 'under_volume'
+  detected_at       DateTime           @default(now()) @db.Timestamptz
+  resolved          Boolean            @default(false)
+
+  user              User               @relation(fields: [user_id], references: [id])
+  exercise          Exercise           @relation(fields: [exercise_id], references: [id])
+
+  @@map("performance_flags")
+}
