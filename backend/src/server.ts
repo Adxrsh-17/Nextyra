@@ -10,16 +10,47 @@ const port = process.env.PORT || 5000;
 app.use(cors({ origin: "http://localhost:3000" }));
 app.use(express.json());
 
-// ────────────────────────────────────────────────
-// HEALTH
-// ────────────────────────────────────────────────
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+type User = {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  goal: string;
+  createdAt: string;
+};
 
-// ────────────────────────────────────────────────
-// EXERCISES
-// ────────────────────────────────────────────────
+type WorkoutSet = {
+  exerciseName: string;
+  weight: number;
+  reps: number;
+  setNumber: number;
+};
+
+type Session = {
+  id: string;
+  userId: string;
+  muscleGroup: string;
+  startedAt: string;
+  completedAt?: string;
+  totalVolumeKg?: number;
+  xpEarned?: number;
+  sets: WorkoutSet[];
+};
+
+const users: User[] = [
+  {
+    id: "demo-user",
+    name: "Athlete",
+    email: "athlete@nextyra.com",
+    password: "demo1234",
+    goal: "Build muscle",
+    createdAt: new Date().toISOString(),
+  },
+];
+
+const sessions: Session[] = [];
+const sessionTokens = new Map<string, string>();
+
 const EXERCISES = [
   { id: "1", name: "Barbell Bench Press", muscle_group: "chest", equipment: "barbell", difficulty: "intermediate" },
   { id: "2", name: "Incline Dumbbell Press", muscle_group: "chest", equipment: "dumbbell", difficulty: "intermediate" },
@@ -56,127 +87,250 @@ const EXERCISES = [
   { id: "33", name: "Cable Crunches", muscle_group: "core", equipment: "cable", difficulty: "intermediate" },
 ];
 
-// GET /api/exercises?muscleGroup=chest&search=bench
-app.get("/api/exercises", (req, res) => {
-  const { muscleGroup, search } = req.query as { muscleGroup?: string; search?: string };
-  let results = EXERCISES;
-  if (muscleGroup) results = results.filter((e) => e.muscle_group === muscleGroup.toLowerCase());
-  if (search) results = results.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()));
-  res.json({ exercises: results });
-});
-
-// ────────────────────────────────────────────────
-// SESSIONS (in-memory for MVP — swap with Prisma when DB is ready)
-// ────────────────────────────────────────────────
-type WorkoutSet = { exerciseName: string; weight: number; reps: number; setNumber: number };
-type Session = {
-  id: string;
-  muscleGroup: string;
-  startedAt: string;
-  completedAt?: string;
-  totalVolumeKg?: number;
-  xpEarned?: number;
-  sets: WorkoutSet[];
+const RECOVERY_HOURS: Record<string, number> = {
+  legs: 96,
+  back: 72,
+  chest: 72,
+  shoulders: 48,
+  biceps: 48,
+  triceps: 48,
+  core: 24,
 };
-
-const sessions: Session[] = [];
 
 function generateId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-// POST /api/sessions — start a session
+function publicUser(user: User) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    goal: user.goal,
+  };
+}
+
+function resolveUser(token?: string) {
+  if (!token) return null;
+  const userId = sessionTokens.get(token);
+  if (!userId) return null;
+  return users.find((candidate) => candidate.id === userId) ?? null;
+}
+
+function requireUser(token?: string) {
+  const user = resolveUser(token);
+  if (!user) {
+    return { error: { error: "Unauthorized" }, user: null };
+  }
+
+  return { error: null, user };
+}
+
+function userSessions(userId: string) {
+  return sessions.filter((session) => session.userId === userId);
+}
+
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+app.post("/api/auth/signup", (req, res) => {
+  const { name, email, password, goal } = req.body as {
+    name?: string;
+    email?: string;
+    password?: string;
+    goal?: string;
+  };
+
+  if (!name || !email || !password || !goal) {
+    return res.status(400).json({ error: "All fields are required." });
+  }
+
+  const existingUser = users.find((user) => user.email.toLowerCase() === email.toLowerCase());
+  if (existingUser) {
+    return res.status(409).json({ error: "An account with this email already exists." });
+  }
+
+  const user: User = {
+    id: generateId(),
+    name,
+    email,
+    password,
+    goal,
+    createdAt: new Date().toISOString(),
+  };
+
+  users.push(user);
+  const sessionToken = generateId();
+  sessionTokens.set(sessionToken, user.id);
+
+  return res.status(201).json({ sessionToken, user: publicUser(user) });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  const { email, password } = req.body as { email?: string; password?: string };
+  const user = users.find((candidate) => candidate.email.toLowerCase() === email?.toLowerCase());
+
+  if (!user || user.password !== password) {
+    return res.status(401).json({ error: "Invalid email or password." });
+  }
+
+  const sessionToken = generateId();
+  sessionTokens.set(sessionToken, user.id);
+  return res.json({ sessionToken, user: publicUser(user) });
+});
+
+app.get("/api/auth/me", (req, res) => {
+  const token = req.query.token as string | undefined;
+  const user = resolveUser(token);
+
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  return res.json({ user: publicUser(user) });
+});
+
+app.get("/api/exercises", (req, res) => {
+  const { muscleGroup, search } = req.query as { muscleGroup?: string; search?: string };
+  let results = EXERCISES;
+  if (muscleGroup) results = results.filter((exercise) => exercise.muscle_group === muscleGroup.toLowerCase());
+  if (search) results = results.filter((exercise) => exercise.name.toLowerCase().includes(search.toLowerCase()));
+  res.json({ exercises: results });
+});
+
 app.post("/api/sessions", (req, res) => {
-  const { muscleGroup } = req.body as { muscleGroup: string };
+  const { token, muscleGroup } = req.body as { token?: string; muscleGroup?: string };
+  const auth = requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
   if (!muscleGroup) {
     return res.status(400).json({ error: "muscleGroup is required" });
   }
+
   const session: Session = {
     id: generateId(),
+    userId: auth.user.id,
     muscleGroup,
     startedAt: new Date().toISOString(),
     sets: [],
   };
+
   sessions.push(session);
   return res.status(201).json({ session });
 });
 
-// POST /api/sets — log a set
 app.post("/api/sets", (req, res) => {
-  const { sessionId, exerciseName, weight, reps, setNumber } = req.body as {
-    sessionId: string; exerciseName: string; weight: number; reps: number; setNumber: number;
+  const { token, sessionId, exerciseName, weight, reps, setNumber } = req.body as {
+    token?: string;
+    sessionId?: string;
+    exerciseName?: string;
+    weight?: number;
+    reps?: number;
+    setNumber?: number;
   };
-  const session = sessions.find((s) => s.id === sessionId);
+  const auth = requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  const session = sessions.find((candidate) => candidate.id === sessionId && candidate.userId === auth.user.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
+
+  if (!exerciseName || !weight || !reps || !setNumber) {
+    return res.status(400).json({ error: "Missing set fields." });
+  }
+
   const set: WorkoutSet = { exerciseName, weight, reps, setNumber };
   session.sets.push(set);
   return res.status(201).json({ set });
 });
 
-// PATCH /api/sessions/:id/complete — finalize session, award XP
 app.patch("/api/sessions/:id/complete", (req, res) => {
-  const session = sessions.find((s) => s.id === req.params.id);
+  const { token } = req.body as { token?: string };
+  const auth = requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  const session = sessions.find((candidate) => candidate.id === req.params.id && candidate.userId === auth.user.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
-  const totalVolumeKg = session.sets.reduce((acc, s) => acc + s.weight * s.reps, 0);
-  const xpEarned = session.sets.length * 10 + 100; // 10 XP per set + 100 base
+
+  const totalVolumeKg = session.sets.reduce((accumulator, set) => accumulator + set.weight * set.reps, 0);
+  const xpEarned = session.sets.length * 10 + 100;
+
   session.completedAt = new Date().toISOString();
   session.totalVolumeKg = totalVolumeKg;
   session.xpEarned = xpEarned;
+
   return res.json({ session, xpEarned, totalVolumeKg, message: "Session completed!" });
 });
 
-// GET /api/sessions — list sessions
-app.get("/api/sessions", (_req, res) => {
-  const completed = sessions.filter((s) => !!s.completedAt);
-  res.json({ sessions: completed });
+app.get("/api/sessions", (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  const completed = userSessions(auth.user.id).filter((session) => !!session.completedAt);
+  res.json({ sessions: completed.sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime()) });
 });
 
-// ────────────────────────────────────────────────
-// RECOVERY AGENT
-// ────────────────────────────────────────────────
-const RECOVERY_HOURS: Record<string, number> = {
-  legs: 96, back: 72, chest: 72, shoulders: 48, biceps: 48, triceps: 48, core: 24,
-};
+app.get("/api/agents/recovery", (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
 
-app.get("/api/agents/recovery", (_req, res) => {
   const muscleGroups = ["chest", "back", "shoulders", "legs", "biceps", "triceps", "core"];
   const recovery: Record<string, number> = {};
-  for (const mg of muscleGroups) {
-    const lastSession = sessions
-      .filter((s) => s.muscleGroup === mg && !!s.completedAt)
+
+  for (const muscleGroup of muscleGroups) {
+    const lastSession = userSessions(auth.user.id)
+      .filter((session) => session.muscleGroup === muscleGroup && !!session.completedAt)
       .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime())[0];
+
     if (!lastSession) {
-      recovery[mg] = 100;
-    } else {
-      const hoursElapsed = (Date.now() - new Date(lastSession.completedAt!).getTime()) / 3_600_000;
-      const volumeFactor = Math.min((lastSession.totalVolumeKg || 0) / 5000, 1.5);
-      const score = Math.max(0, 100 - (hoursElapsed / RECOVERY_HOURS[mg]) * 100 * (volumeFactor || 1));
-      recovery[mg] = Math.round(score);
+      recovery[muscleGroup] = 100;
+      continue;
     }
+
+    const hoursElapsed = (Date.now() - new Date(lastSession.completedAt!).getTime()) / 3_600_000;
+    const volumeFactor = Math.min((lastSession.totalVolumeKg || 0) / 5000, 1.5);
+    const score = Math.max(0, 100 - (hoursElapsed / RECOVERY_HOURS[muscleGroup]) * 100 * (volumeFactor || 1));
+    recovery[muscleGroup] = Math.round(score);
   }
+
   res.json({ recovery });
 });
 
-// ────────────────────────────────────────────────
-// DASHBOARD SUMMARY
-// ────────────────────────────────────────────────
-app.get("/api/dashboard", (_req, res) => {
-  const completed = sessions.filter((s) => !!s.completedAt);
-  const totalXP = completed.reduce((acc, s) => acc + (s.xpEarned || 0), 0);
+app.get("/api/dashboard", (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  const completed = userSessions(auth.user.id).filter((session) => !!session.completedAt);
+  const totalXP = completed.reduce((accumulator, session) => accumulator + (session.xpEarned || 0), 0);
   const level = Math.floor(totalXP / 500) + 1;
-  const totalVolume = completed.reduce((acc, s) => acc + (s.totalVolumeKg || 0), 0);
+  const totalVolume = completed.reduce((accumulator, session) => accumulator + (session.totalVolumeKg || 0), 0);
+  const thisWeekVolume = completed
+    .filter((session) => Date.now() - new Date(session.completedAt!).getTime() <= 7 * 24 * 60 * 60 * 1000)
+    .reduce((accumulator, session) => accumulator + (session.totalVolumeKg || 0), 0);
+
   res.json({
     totalSessions: completed.length,
     totalXP,
     level,
     totalVolumeKg: totalVolume,
-    recentSessions: completed.slice(-5).reverse(),
+    weeklyVolumeKg: thisWeekVolume,
+    recentSessions: completed.slice(0, 5).map((session) => ({
+      id: session.id,
+      muscle: session.muscleGroup,
+      date: session.completedAt,
+      volume: session.totalVolumeKg || 0,
+      xp: session.xpEarned || 0,
+      sets: session.sets.length,
+    })),
   });
 });
 
 app.listen(port, () => {
-  console.log(`\n  🚀 Nextyra API running at http://localhost:${port}`);
-  console.log(`  📋 Health: http://localhost:${port}/health`);
-  console.log(`  💪 Exercises: http://localhost:${port}/api/exercises`);
-  console.log(`  📊 Recovery: http://localhost:${port}/api/agents/recovery\n`);
+  console.log(`\n  Nextyra API running at http://localhost:${port}`);
+  console.log(`  Health: http://localhost:${port}/health`);
+  console.log(`  Exercises: http://localhost:${port}/api/exercises`);
+  console.log(`  Recovery: http://localhost:${port}/api/agents/recovery\n`);
 });

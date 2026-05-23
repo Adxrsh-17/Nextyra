@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { apiFetch, ApiError } from "@/lib/api";
 
 const MUSCLE_GROUPS = [
   { id: "chest", label: "Chest", icon: "CH", note: "Push strength and chest volume" },
@@ -13,45 +14,219 @@ const MUSCLE_GROUPS = [
   { id: "core", label: "Core", icon: "CR", note: "Bracing and trunk control" },
 ];
 
-const EXERCISES: Record<string, string[]> = {
-  chest: ["Barbell Bench Press", "Incline Dumbbell Press", "Cable Crossovers", "Push-ups", "Dumbbell Flyes"],
-  back: ["Deadlift", "Pull-ups", "Barbell Row", "Lat Pulldown", "Seated Cable Row"],
-  shoulders: ["Overhead Press", "Lateral Raises", "Front Raises", "Face Pulls", "Arnold Press"],
-  legs: ["Squat", "Leg Press", "Lunges", "Leg Extensions", "Leg Curls"],
-  biceps: ["Barbell Curl", "Hammer Curls", "Preacher Curl", "Concentration Curls"],
-  triceps: ["Tricep Pushdown", "Skull Crushers", "Overhead Tricep Extension", "Dips"],
-  core: ["Crunches", "Plank", "Russian Twists", "Leg Raises", "Cable Crunches"],
+const DEFAULT_EXERCISES: Record<string, string[]> = {
+  chest: ["Barbell Bench Press", "Incline Dumbbell Press", "Cable Crossovers"],
+  back: ["Deadlift", "Pull-ups", "Lat Pulldown"],
+  shoulders: ["Overhead Press", "Lateral Raises", "Arnold Press"],
+  legs: ["Squat", "Leg Press", "Lunges"],
+  biceps: ["Barbell Curl", "Hammer Curls", "Preacher Curl"],
+  triceps: ["Tricep Pushdown", "Skull Crushers", "Dips"],
+  core: ["Plank", "Russian Twists", "Cable Crunches"],
 };
 
-type Set = { weight: string; reps: string; completed: boolean };
+const COACH_STARTERS = [
+  "I feel tired but want to train legs today",
+  "I'm feeling strong, give me a chest session",
+  "I'm stressed and want a lighter recovery day",
+];
+
+const AGENT_NAME = "PulsePilot";
+const COACH_WELCOME =
+  "I am PulsePilot, your adaptive training agent. Tell me how your body and mind feel today, and I will rebuild the session intensity, movement choice, and set structure for you.";
+
+type SetRow = { weight: string; reps: string; completed: boolean };
+type ExerciseResponse = { exercises: Array<{ id: string; name: string }> };
+type CoachMessage = { role: "assistant" | "user"; content: string };
+type Mood = "recovery" | "steady" | "push";
+
+function readToken() {
+  return typeof window === "undefined" ? "" : window.localStorage.getItem("nextyra-session-token") ?? "";
+}
+
+function createSetPlan(mood: Mood): SetRow[] {
+  if (mood === "recovery") {
+    return [
+      { weight: "40", reps: "12", completed: false },
+      { weight: "40", reps: "12", completed: false },
+      { weight: "35", reps: "15", completed: false },
+    ];
+  }
+
+  if (mood === "push") {
+    return [
+      { weight: "70", reps: "6", completed: false },
+      { weight: "70", reps: "6", completed: false },
+      { weight: "65", reps: "8", completed: false },
+      { weight: "60", reps: "10", completed: false },
+    ];
+  }
+
+  return [
+    { weight: "60", reps: "8", completed: false },
+    { weight: "60", reps: "8", completed: false },
+    { weight: "55", reps: "10", completed: false },
+  ];
+}
+
+function inferMuscle(prompt: string) {
+  const lower = prompt.toLowerCase();
+  return MUSCLE_GROUPS.find((group) => lower.includes(group.id) || lower.includes(group.label.toLowerCase()))?.id ?? "legs";
+}
+
+function inferMood(prompt: string): Mood {
+  const lower = prompt.toLowerCase();
+  if (["tired", "sore", "stressed", "low", "recovery", "light"].some((word) => lower.includes(word))) {
+    return "recovery";
+  }
+  if (["strong", "energetic", "great", "push", "intense", "hard"].some((word) => lower.includes(word))) {
+    return "push";
+  }
+  return "steady";
+}
+
+function buildCoachReply(muscle: string, mood: Mood, exercise: string) {
+  const label = muscle.charAt(0).toUpperCase() + muscle.slice(1);
+
+  if (mood === "recovery") {
+    return `You sound a bit drained, so I shifted today into a lighter ${label} session. I picked ${exercise} with higher reps and lower weight to keep momentum without frying recovery.`;
+  }
+
+  if (mood === "push") {
+    return `You sound ready to push, so I built a heavier ${label} day around ${exercise}. I set it up with lower-rep working sets first, then back-off volume to finish strong.`;
+  }
+
+  return `You sound balanced, so I built a standard ${label} session around ${exercise}. It is a solid productive workout without overcomplicating the day.`;
+}
+
+function buildPlanLabel(mood: Mood) {
+  if (mood === "recovery") return "Recovery-preserving plan";
+  if (mood === "push") return "Performance push plan";
+  return "Balanced progression plan";
+}
 
 export default function NewWorkoutPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedMuscle, setSelectedMuscle] = useState("");
   const [selectedExercise, setSelectedExercise] = useState("");
   const [search, setSearch] = useState("");
-  const [sets, setSets] = useState<Set[]>([{ weight: "60", reps: "8", completed: false }]);
+  const [exerciseOptions, setExerciseOptions] = useState<string[]>([]);
+  const [sets, setSets] = useState<SetRow[]>([{ weight: "60", reps: "8", completed: false }]);
   const [totalXP, setTotalXP] = useState(0);
   const [sessionDone, setSessionDone] = useState(false);
+  const [sessionId, setSessionId] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [coachInput, setCoachInput] = useState("");
+  const [coachMood, setCoachMood] = useState<Mood>("steady");
+  const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([{ role: "assistant", content: COACH_WELCOME }]);
 
-  const filteredExercises = (EXERCISES[selectedMuscle] || []).filter((exercise) =>
-    exercise.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const completedCount = sets.filter((set) => set.completed).length;
+  const token = readToken();
   const selectedMuscleMeta = MUSCLE_GROUPS.find((group) => group.id === selectedMuscle);
+  const completedCount = sets.filter((set) => set.completed).length;
+
+  useEffect(() => {
+    if (!selectedMuscle) return;
+
+    const query = new URLSearchParams({
+      muscleGroup: selectedMuscle,
+      search,
+    });
+
+    apiFetch<ExerciseResponse>(`/api/exercises?${query.toString()}`).then((response) => {
+      const items = response.exercises.map((exercise) => exercise.name);
+      setExerciseOptions(items.length ? items : DEFAULT_EXERCISES[selectedMuscle] ?? []);
+    });
+  }, [search, selectedMuscle]);
+
+  const sessionVolume = useMemo(() => {
+    return sets.reduce((total, set) => total + Number(set.weight || 0) * Number(set.reps || 0), 0);
+  }, [sets]);
+
+  async function startSession(muscleGroup: string) {
+    const response = await apiFetch<{ session: { id: string } }>("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify({ token, muscleGroup }),
+    });
+
+    setSessionId(response.session.id);
+  }
+
+  async function prepareWorkout(muscleGroup: string, exercise: string, nextSets: SetRow[], mood?: Mood) {
+    setError("");
+    setSelectedMuscle(muscleGroup);
+    setSelectedExercise(exercise);
+    setExerciseOptions(DEFAULT_EXERCISES[muscleGroup] ?? [exercise]);
+    setSets(nextSets);
+    setSessionId("");
+    setTotalXP(0);
+    setStep(3);
+    if (mood) setCoachMood(mood);
+    await startSession(muscleGroup);
+  }
+
+  async function runCoach(prompt: string) {
+    const muscle = inferMuscle(prompt);
+    const mood = inferMood(prompt);
+    const exercise = DEFAULT_EXERCISES[muscle][0];
+    const nextSets = createSetPlan(mood);
+
+    setCoachMessages((current) => [...current, { role: "user", content: prompt }]);
+    await prepareWorkout(muscle, exercise, nextSets, mood);
+    setCoachMessages((current) => [...current, { role: "assistant", content: buildCoachReply(muscle, mood, exercise) }]);
+    setCoachInput("");
+  }
 
   function addSet() {
-    setSets((previous) => [...previous, { weight: "60", reps: "8", completed: false }]);
+    const template = coachMood === "recovery" ? { weight: "35", reps: "15", completed: false } : coachMood === "push" ? { weight: "60", reps: "8", completed: false } : { weight: "55", reps: "10", completed: false };
+    setSets((previous) => [...previous, template]);
   }
 
   function updateSet(index: number, field: "weight" | "reps", value: string) {
     setSets((previous) => previous.map((set, currentIndex) => (currentIndex === index ? { ...set, [field]: value } : set)));
   }
 
-  function completeSet(index: number) {
-    setSets((previous) => previous.map((set, currentIndex) => (currentIndex === index ? { ...set, completed: true } : set)));
-    setTotalXP((currentXp) => currentXp + 10);
+  async function completeSet(index: number) {
+    if (!sessionId || !selectedExercise) return;
+
+    const set = sets[index];
+    try {
+      await apiFetch("/api/sets", {
+        method: "POST",
+        body: JSON.stringify({
+          token,
+          sessionId,
+          exerciseName: selectedExercise,
+          weight: Number(set.weight),
+          reps: Number(set.reps),
+          setNumber: index + 1,
+        }),
+      });
+
+      setSets((previous) => previous.map((entry, currentIndex) => (currentIndex === index ? { ...entry, completed: true } : entry)));
+      setTotalXP((currentXp) => currentXp + 10);
+    } catch (submitError) {
+      setError(submitError instanceof ApiError ? submitError.message : "Unable to save the set.");
+    }
+  }
+
+  async function finishSession() {
+    if (!sessionId) return;
+    setSaving(true);
+    setError("");
+
+    try {
+      const response = await apiFetch<{ xpEarned: number }>("/api/sessions/" + sessionId + "/complete", {
+        method: "PATCH",
+        body: JSON.stringify({ token }),
+      });
+
+      setTotalXP(response.xpEarned);
+      setSessionDone(true);
+    } catch (submitError) {
+      setError(submitError instanceof ApiError ? submitError.message : "Unable to finish the session.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function resetFlow() {
@@ -59,9 +234,15 @@ export default function NewWorkoutPage() {
     setSelectedMuscle("");
     setSelectedExercise("");
     setSearch("");
+    setExerciseOptions([]);
     setSets([{ weight: "60", reps: "8", completed: false }]);
     setTotalXP(0);
     setSessionDone(false);
+    setSessionId("");
+    setError("");
+    setCoachMood("steady");
+    setCoachMessages([{ role: "assistant", content: COACH_WELCOME }]);
+    setCoachInput("");
   }
 
   if (sessionDone) {
@@ -73,25 +254,16 @@ export default function NewWorkoutPage() {
             <path d="M12 3a9 9 0 1 0 9 9" />
           </svg>
         </div>
-        <div className="section-title">Session completed</div>
+        <div className="section-title">Workout complete</div>
         <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 4vw, 3.2rem)", maxWidth: "none" }}>
-          Clean logging, better momentum.
+          Saved, scored, and ready for tomorrow&apos;s coaching.
         </h1>
         <p className="hero-copy" style={{ marginInline: "auto" }}>
-          You completed {completedCount} sets of {selectedExercise}. The experience now feels more like a guided workflow than a plain form, which is the right direction for a startup product.
+          You completed {completedCount} sets of {selectedExercise}, tracked {sessionVolume.toLocaleString()} kg of volume, and earned {totalXP} XP.
         </p>
-        <div className="panel" style={{ maxWidth: "360px", margin: "1.8rem auto 0" }}>
-          <div className="metric-label">Session XP earned</div>
-          <div className="kpi-value" style={{ color: "var(--accent)" }}>
-            +{totalXP}
-          </div>
-          <div className="helper-text" style={{ marginTop: "0.65rem" }}>
-            Logged under {selectedMuscleMeta?.label ?? "your selected group"}
-          </div>
-        </div>
         <div className="hero-actions" style={{ justifyContent: "center" }}>
           <button type="button" onClick={resetFlow} className="secondary-button">
-            Log another session
+            Log another workout
           </button>
           <Link href="/dashboard" className="primary-button">
             Return to dashboard
@@ -108,13 +280,13 @@ export default function NewWorkoutPage() {
           <div>
             <div className="section-title">Guided workout capture</div>
             <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 3vw, 3.2rem)", maxWidth: "13ch" }}>
-              Logging a session should feel fast, focused, and premium.
+              Tell PulsePilot how you feel and let the workout adapt.
             </h1>
             <p className="hero-copy">
-              The flow below reduces noise, keeps the athlete in motion, and adds enough visual feedback to make the product feel alive.
+              This is not a generic chat tool. PulsePilot reads your state, decides the training mode, and builds the day around that decision so the workout changes with the athlete.
             </p>
           </div>
-          <div className="pill">Live XP: +{totalXP}</div>
+          <div className="pill">{AGENT_NAME} active • Live XP: +{totalXP}</div>
         </div>
       </section>
 
@@ -150,9 +322,8 @@ export default function NewWorkoutPage() {
                     type="button"
                     key={muscle.id}
                     className="muscle-card"
-                    onClick={() => {
-                      setSelectedMuscle(muscle.id);
-                      setStep(2);
+                    onClick={async () => {
+                      await prepareWorkout(muscle.id, DEFAULT_EXERCISES[muscle.id][0], createSetPlan("steady"), "steady");
                     }}
                   >
                     <div className="badge-box" style={{ width: "3rem", height: "3rem", background: "var(--bg-soft)", color: "var(--accent)" }}>
@@ -185,17 +356,11 @@ export default function NewWorkoutPage() {
                   <circle cx="11" cy="11" r="7" />
                   <path d="m20 20-3.5-3.5" />
                 </svg>
-                <input
-                  className="search-field"
-                  type="text"
-                  placeholder="Search exercises"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
+                <input className="search-field" type="text" placeholder="Search exercises" value={search} onChange={(event) => setSearch(event.target.value)} />
               </div>
 
               <div className="exercise-list" style={{ marginTop: "1rem" }}>
-                {filteredExercises.map((exercise) => (
+                {exerciseOptions.map((exercise) => (
                   <button
                     type="button"
                     key={exercise}
@@ -225,7 +390,7 @@ export default function NewWorkoutPage() {
                   <div className="section-title">Step 3</div>
                   <div className="section-heading">{selectedExercise}</div>
                   <div className="helper-text" style={{ marginTop: "0.35rem" }}>
-                    Log weight and reps, then lock each completed set.
+                    {buildPlanLabel(coachMood)}: {coachMood === "recovery" ? "lighter recovery session" : coachMood === "push" ? "higher intensity push session" : "balanced standard session"}.
                   </div>
                 </div>
                 <button type="button" onClick={() => setStep(2)} className="ghost-button">
@@ -240,23 +405,11 @@ export default function NewWorkoutPage() {
                       <div className="set-index">{index + 1}</div>
                       <div>
                         <div className="form-label">Weight (kg)</div>
-                        <input
-                          className="number-input"
-                          type="number"
-                          value={set.weight}
-                          disabled={set.completed}
-                          onChange={(event) => updateSet(index, "weight", event.target.value)}
-                        />
+                        <input className="number-input" type="number" value={set.weight} disabled={set.completed} onChange={(event) => updateSet(index, "weight", event.target.value)} />
                       </div>
                       <div>
                         <div className="form-label">Reps</div>
-                        <input
-                          className="number-input"
-                          type="number"
-                          value={set.reps}
-                          disabled={set.completed}
-                          onChange={(event) => updateSet(index, "reps", event.target.value)}
-                        />
+                        <input className="number-input" type="number" value={set.reps} disabled={set.completed} onChange={(event) => updateSet(index, "reps", event.target.value)} />
                       </div>
                       <div>
                         <div className="form-label">Action</div>
@@ -266,7 +419,7 @@ export default function NewWorkoutPage() {
                           </div>
                         ) : (
                           <button type="button" onClick={() => completeSet(index)} className="primary-button" style={{ marginTop: "0.45rem", width: "100%" }}>
-                            Complete set
+                            Save set
                           </button>
                         )}
                       </div>
@@ -275,32 +428,84 @@ export default function NewWorkoutPage() {
                 ))}
               </div>
 
+              {error ? <p className="auth-error">{error}</p> : null}
+
               <div className="hero-actions">
                 <button type="button" onClick={addSet} className="secondary-button">
                   Add set
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setSessionDone(true)}
-                  disabled={completedCount === 0}
-                  className="primary-button"
-                  style={{
-                    opacity: completedCount === 0 ? 0.55 : 1,
-                    pointerEvents: completedCount === 0 ? "none" : "auto",
-                  }}
-                >
-                  Finish session ({completedCount}/{sets.length})
+                <button type="button" onClick={finishSession} disabled={completedCount === 0 || saving} className="primary-button" style={{ opacity: completedCount === 0 || saving ? 0.55 : 1 }}>
+                  {saving ? "Finishing..." : `Finish workout (${completedCount}/${sets.length})`}
                 </button>
               </div>
             </section>
           )}
         </div>
 
-        <aside className="panel sidebar-metric">
-          <div>
-            <div className="section-title">Session snapshot</div>
-            <div className="section-heading">Focused progress</div>
+        <aside className="panel sidebar-metric coach-cockpit">
+          <div className="coach-feature-head">
+            <div className="coach-feature-badge">{AGENT_NAME}</div>
+            <div>
+              <div className="section-title">Signature feature</div>
+              <div className="section-heading">Adaptive workout agent</div>
+            </div>
           </div>
+
+          <div className="coach-value-card">
+            <div className="metric-label">What makes it premium</div>
+            <div className="coach-value-copy">
+              PulsePilot changes the workout based on fatigue, stress, and readiness instead of forcing the same plan every day.
+            </div>
+          </div>
+
+          <div className="coach-decision-grid">
+            <div className="summary-card">
+              <div className="metric-label">Today&apos;s mode</div>
+              <div className="metric-value">{buildPlanLabel(coachMood)}</div>
+            </div>
+            <div className="summary-card">
+              <div className="metric-label">Decision basis</div>
+              <div className="metric-value" style={{ fontSize: "1rem" }}>
+                {coachMood === "recovery" ? "Fatigue or stress detected" : coachMood === "push" ? "High-energy push signal" : "Stable readiness signal"}
+              </div>
+            </div>
+          </div>
+
+          <div className="coach-chat">
+            {coachMessages.map((message, index) => (
+              <div key={`${message.role}-${index}`} className={`coach-bubble ${message.role === "assistant" ? "coach-bubble-assistant" : "coach-bubble-user"}`}>
+                {message.content}
+              </div>
+            ))}
+          </div>
+
+          <div className="coach-suggestions">
+            {COACH_STARTERS.map((starter) => (
+              <button key={starter} type="button" className="coach-chip" onClick={() => void runCoach(starter)}>
+                {starter}
+              </button>
+            ))}
+          </div>
+
+          <form
+            className="coach-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!coachInput.trim()) return;
+              void runCoach(coachInput.trim());
+            }}
+          >
+            <textarea
+              className="coach-input"
+              placeholder="Example: I feel sore and low energy, but I still want to train back."
+              value={coachInput}
+              onChange={(event) => setCoachInput(event.target.value)}
+            />
+            <button type="submit" className="primary-button" style={{ width: "100%" }}>
+              Let {AGENT_NAME} build today&apos;s workout
+            </button>
+          </form>
+
           <div className="summary-card">
             <div className="metric-label">Muscle group</div>
             <div className="metric-value">{selectedMuscleMeta?.label ?? "Not selected"}</div>
@@ -308,7 +513,7 @@ export default function NewWorkoutPage() {
           <div className="summary-card">
             <div className="metric-label">Exercise</div>
             <div className="metric-value" style={{ fontSize: "1.1rem" }}>
-              {selectedExercise || "Choose a movement"}
+              {selectedExercise || "Coach will pick a movement"}
             </div>
           </div>
           <div className="summary-card">
@@ -316,13 +521,10 @@ export default function NewWorkoutPage() {
             <div className="kpi-value">{completedCount}</div>
           </div>
           <div className="summary-card">
-            <div className="metric-label">XP earned</div>
+            <div className="metric-label">Session volume</div>
             <div className="kpi-value" style={{ color: "var(--accent)" }}>
-              +{totalXP}
+              {sessionVolume.toLocaleString()}
             </div>
-          </div>
-          <div className="helper-text">
-            This side panel gives the flow a stronger product feel and keeps the user oriented while they log.
           </div>
           <Link href="/dashboard" className="ghost-button">
             Exit to dashboard

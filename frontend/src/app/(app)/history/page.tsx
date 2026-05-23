@@ -1,38 +1,73 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
-const SESSIONS = [
-  { id: "1", muscle: "Chest", date: "May 22, 2026", volume: "4,200", xp: 120, sets: 12, exercises: ["Barbell Bench Press", "Cable Crossovers", "Push-ups"] },
-  { id: "2", muscle: "Back", date: "May 21, 2026", volume: "6,800", xp: 160, sets: 16, exercises: ["Deadlift", "Pull-ups", "Lat Pulldown"] },
-  { id: "3", muscle: "Legs", date: "May 18, 2026", volume: "9,400", xp: 200, sets: 18, exercises: ["Squat", "Leg Press", "Lunges"] },
-  { id: "4", muscle: "Shoulders", date: "May 17, 2026", volume: "3,100", xp: 90, sets: 10, exercises: ["Overhead Press", "Lateral Raises"] },
-  { id: "5", muscle: "Biceps", date: "May 15, 2026", volume: "1,800", xp: 80, sets: 10, exercises: ["Barbell Curl", "Hammer Curls"] },
-];
-
-const muscleColor: Record<string, { bg: string; color: string }> = {
-  Chest: { bg: "rgba(55, 199, 234, 0.16)", color: "#77d8ff" },
-  Back: { bg: "rgba(110, 231, 200, 0.14)", color: "#8cf2d2" },
-  Legs: { bg: "rgba(241, 124, 69, 0.14)", color: "#ffb286" },
-  Shoulders: { bg: "rgba(130, 159, 255, 0.14)", color: "#b9c8ff" },
-  Biceps: { bg: "rgba(255, 125, 125, 0.14)", color: "#ffaaaa" },
+type Session = {
+  id: string;
+  muscleGroup: string;
+  completedAt: string;
+  totalVolumeKg?: number;
+  xpEarned?: number;
+  sets: Array<{
+    exerciseName: string;
+    weight: number;
+    reps: number;
+    setNumber: number;
+  }>;
 };
 
+function formatRelativeDate(value: string) {
+  const date = new Date(value);
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatMuscleName(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 export default function HistoryPage() {
+  const [sessions, setSessions] = useState<Session[]>([]);
+
+  useEffect(() => {
+    const token = window.localStorage.getItem("nextyra-session-token");
+    if (!token) return;
+
+    apiFetch<{ sessions: Session[] }>(`/api/sessions?token=${encodeURIComponent(token)}`).then((response) => {
+      setSessions(response.sessions);
+    });
+  }, []);
+
+  const totals = useMemo(() => {
+    return sessions.reduce(
+      (accumulator, session) => {
+        accumulator.totalSessions += 1;
+        accumulator.totalSets += session.sets.length;
+        accumulator.totalVolume += session.totalVolumeKg ?? 0;
+        accumulator.totalXP += session.xpEarned ?? 0;
+        return accumulator;
+      },
+      { totalSessions: 0, totalSets: 0, totalVolume: 0, totalXP: 0 }
+    );
+  }, [sessions]);
+
   return (
     <div className="page">
       <section className="hero-panel">
         <div className="history-hero">
           <div>
-            <div className="section-title">Performance archive</div>
-            <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 3vw, 3.4rem)", maxWidth: "14ch" }}>
-              Every workout, organized like a product dashboard.
+            <div className="section-title">Training archive</div>
+            <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 3vw, 3.4rem)", maxWidth: "13ch" }}>
+              Real sessions. Real volume. Real momentum.
             </h1>
             <p className="hero-copy">
-              This view is designed to feel less like a table dump and more like a premium training timeline. You can scan signal, volume, and effort quickly.
+              This page now reflects the workouts you actually complete, so progress feels earned instead of mocked up.
             </p>
           </div>
           <div className="section-actions">
             <Link href="/workout/new" className="primary-button">
-              Log a new session
+              Log a new workout
             </Link>
           </div>
         </div>
@@ -40,10 +75,10 @@ export default function HistoryPage() {
 
       <section className="kpi-grid">
         {[
-          { label: "Total sessions", value: "47", note: "4 in the last 7 days" },
-          { label: "Total sets", value: "632", note: "Average 13.4 per workout" },
-          { label: "Total volume", value: "142K", note: "Tracked across all muscle groups" },
-          { label: "Total XP", value: "3,540", note: "Gamified reward loop is active" },
+          { label: "Total sessions", value: String(totals.totalSessions), note: "Saved from completed workouts" },
+          { label: "Total sets", value: String(totals.totalSets), note: "All sets logged through the workout flow" },
+          { label: "Total volume", value: `${(totals.totalVolume / 1000).toFixed(1)}K`, note: "Kilograms tracked across all sessions" },
+          { label: "Total XP", value: totals.totalXP.toLocaleString(), note: "Earned from completed set volume" },
         ].map((item) => (
           <div className="panel kpi-card" key={item.label}>
             <div className="kpi-label">{item.label}</div>
@@ -61,47 +96,43 @@ export default function HistoryPage() {
             <div className="section-title">Session timeline</div>
             <div className="section-heading">Recent workout history</div>
           </div>
-          <div className="panel-note">Designed for quick review, not spreadsheet fatigue.</div>
         </div>
 
         <div className="history-list">
-          {SESSIONS.map((session) => {
-            const colors = muscleColor[session.muscle] ?? { bg: "rgba(255,255,255,0.08)", color: "var(--text)" };
+          {sessions.map((session) => (
+            <article className="timeline-card" key={session.id}>
+              <div className="timeline-layout">
+                <div className="badge-box" style={{ background: "var(--bg-soft)", color: "var(--accent)", border: "1px solid var(--border-strong)" }}>
+                  {session.muscleGroup.slice(0, 3).toUpperCase()}
+                </div>
 
-            return (
-              <article className="timeline-card" key={session.id}>
-                <div className="timeline-layout">
-                  <div className="badge-box" style={{ background: colors.bg, color: colors.color, border: `1px solid ${colors.color}33` }}>
-                    {session.muscle.slice(0, 3).toUpperCase()}
+                <div>
+                  <div className="timeline-top">
+                    <div>
+                      <div className="timeline-title">{formatMuscleName(session.muscleGroup)} focus session</div>
+                      <div className="timeline-date">{formatRelativeDate(session.completedAt)}</div>
+                    </div>
+                    <div className="pill">+{session.xpEarned ?? 0} XP</div>
                   </div>
-
-                  <div>
-                    <div className="timeline-top">
-                      <div>
-                        <div className="timeline-title">{session.muscle} focus session</div>
-                        <div className="timeline-date">{session.date}</div>
-                      </div>
-                      <div className="pill" style={{ color: colors.color, background: colors.bg }}>
-                        +{session.xp} XP
-                      </div>
-                    </div>
-                    <div className="timeline-exercises">{session.exercises.join(" • ")}</div>
-                  </div>
-
-                  <div className="history-stats">
-                    <div className="history-stat-box">
-                      <div className="metric-label">Volume</div>
-                      <div className="metric-value">{session.volume} kg</div>
-                    </div>
-                    <div className="history-stat-box">
-                      <div className="metric-label">Sets</div>
-                      <div className="metric-value">{session.sets}</div>
-                    </div>
+                  <div className="timeline-exercises">
+                    {session.sets.map((set) => set.exerciseName).filter((value, index, values) => values.indexOf(value) === index).join(" • ")}
                   </div>
                 </div>
-              </article>
-            );
-          })}
+
+                <div className="history-stats">
+                  <div className="history-stat-box">
+                    <div className="metric-label">Volume</div>
+                    <div className="metric-value">{(session.totalVolumeKg ?? 0).toLocaleString()} kg</div>
+                  </div>
+                  <div className="history-stat-box">
+                    <div className="metric-label">Sets</div>
+                    <div className="metric-value">{session.sets.length}</div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))}
+          {!sessions.length ? <div className="panel-empty">No completed workouts yet. Log a session to build your history.</div> : null}
         </div>
       </section>
     </div>
