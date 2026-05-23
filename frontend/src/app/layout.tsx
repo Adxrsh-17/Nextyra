@@ -3,8 +3,8 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
-  title: "Nextyra — Adaptive Fitness Platform",
-  description: "AI-powered gamified fitness platform with multi-agent intelligence",
+  title: "Nextyra | Adaptive Fitness OS",
+  description: "A sharper, more motivating training platform for modern fitness teams and athletes.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

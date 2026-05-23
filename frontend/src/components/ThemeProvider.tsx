@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
 
@@ -10,16 +10,23 @@ const ThemeContext = createContext<{ theme: Theme; toggle: () => void }>({
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("dark");
-  const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") {
+      return "dark";
+    }
+
+    const stored = localStorage.getItem("nextyra-theme") as Theme | null;
+    return stored ?? "dark";
+  });
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   useEffect(() => {
-    const stored = localStorage.getItem("nextyra-theme") as Theme | null;
-    const preferred = stored ?? "dark";
-    setTheme(preferred);
-    document.documentElement.setAttribute("data-theme", preferred);
-    setMounted(true);
-  }, []);
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
 
   function toggle() {
     const next: Theme = theme === "dark" ? "light" : "dark";

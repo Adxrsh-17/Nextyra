@@ -4,13 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 
 const MUSCLE_GROUPS = [
-  { id: "chest", label: "Chest", emoji: "🏋️" },
-  { id: "back", label: "Back", emoji: "🔙" },
-  { id: "shoulders", label: "Shoulders", emoji: "💪" },
-  { id: "legs", label: "Legs", emoji: "🦵" },
-  { id: "biceps", label: "Biceps", emoji: "💪" },
-  { id: "triceps", label: "Triceps", emoji: "✊" },
-  { id: "core", label: "Core", emoji: "🎯" },
+  { id: "chest", label: "Chest", icon: "CH", note: "Push strength and chest volume" },
+  { id: "back", label: "Back", icon: "BK", note: "Rows, pulls, and posterior chain" },
+  { id: "shoulders", label: "Shoulders", icon: "SH", note: "Pressing power and stability" },
+  { id: "legs", label: "Legs", icon: "LG", note: "Primary lower-body session" },
+  { id: "biceps", label: "Biceps", icon: "BI", note: "Accessory arm work" },
+  { id: "triceps", label: "Triceps", icon: "TR", note: "Lockout and extension focus" },
+  { id: "core", label: "Core", icon: "CR", note: "Bracing and trunk control" },
 ];
 
 const EXERCISES: Record<string, string[]> = {
@@ -27,68 +27,74 @@ type Set = { weight: string; reps: string; completed: boolean };
 
 export default function NewWorkoutPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [selectedMuscle, setSelectedMuscle] = useState<string>("");
-  const [selectedExercise, setSelectedExercise] = useState<string>("");
-  const [search, setSearch] = useState<string>("");
+  const [selectedMuscle, setSelectedMuscle] = useState("");
+  const [selectedExercise, setSelectedExercise] = useState("");
+  const [search, setSearch] = useState("");
   const [sets, setSets] = useState<Set[]>([{ weight: "60", reps: "8", completed: false }]);
   const [totalXP, setTotalXP] = useState(0);
   const [sessionDone, setSessionDone] = useState(false);
 
-  const filteredExercises = (EXERCISES[selectedMuscle] || []).filter((ex) =>
-    ex.toLowerCase().includes(search.toLowerCase())
+  const filteredExercises = (EXERCISES[selectedMuscle] || []).filter((exercise) =>
+    exercise.toLowerCase().includes(search.toLowerCase())
   );
 
+  const completedCount = sets.filter((set) => set.completed).length;
+  const selectedMuscleMeta = MUSCLE_GROUPS.find((group) => group.id === selectedMuscle);
+
   function addSet() {
-    setSets((prev) => [...prev, { weight: "60", reps: "8", completed: false }]);
+    setSets((previous) => [...previous, { weight: "60", reps: "8", completed: false }]);
   }
 
-  function updateSet(idx: number, field: "weight" | "reps", value: string) {
-    setSets((prev) => prev.map((s, i) => (i === idx ? { ...s, [field]: value } : s)));
+  function updateSet(index: number, field: "weight" | "reps", value: string) {
+    setSets((previous) => previous.map((set, currentIndex) => (currentIndex === index ? { ...set, [field]: value } : set)));
   }
 
-  function completeSet(idx: number) {
-    setSets((prev) => prev.map((s, i) => (i === idx ? { ...s, completed: true } : s)));
-    setTotalXP((xp) => xp + 10);
+  function completeSet(index: number) {
+    setSets((previous) => previous.map((set, currentIndex) => (currentIndex === index ? { ...set, completed: true } : set)));
+    setTotalXP((currentXp) => currentXp + 10);
   }
 
-  function finishSession() {
-    setSessionDone(true);
+  function resetFlow() {
+    setStep(1);
+    setSelectedMuscle("");
+    setSelectedExercise("");
+    setSearch("");
+    setSets([{ weight: "60", reps: "8", completed: false }]);
+    setTotalXP(0);
+    setSessionDone(false);
   }
-
-  const completedCount = sets.filter((s) => s.completed).length;
 
   if (sessionDone) {
     return (
-      <div style={{ maxWidth: "520px", margin: "0 auto", textAlign: "center", paddingTop: "40px" }}>
-        <div style={{ fontSize: "72px", marginBottom: "24px" }}>🏆</div>
-        <h1 style={{ fontSize: "32px", fontWeight: 800, color: "var(--text-primary)", marginBottom: "12px" }}>
-          Session Complete!
-        </h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "16px", marginBottom: "32px" }}>
-          You crushed {completedCount} sets of {selectedExercise}
-        </p>
-        <div
-          style={{
-            background: "linear-gradient(135deg, rgba(139,92,246,0.2), rgba(109,40,217,0.2))",
-            border: "1px solid var(--border-accent)",
-            borderRadius: "16px",
-            padding: "24px",
-            marginBottom: "32px",
-            boxShadow: "var(--shadow-md)",
-          }}
-        >
-          <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginBottom: "8px", fontWeight: 600 }}>XP EARNED</p>
-          <p style={{ fontSize: "48px", fontWeight: 900, color: "var(--accent)" }}>+{totalXP}</p>
+      <div className="completion-card form-card">
+        <div className="completion-orb">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m9 12 2 2 4-4" />
+            <path d="M12 3a9 9 0 1 0 9 9" />
+          </svg>
         </div>
-        <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-          <button
-            onClick={() => { setStep(1); setSelectedMuscle(""); setSelectedExercise(""); setSets([{ weight: "60", reps: "8", completed: false }]); setTotalXP(0); setSessionDone(false); }}
-            style={{ padding: "12px 24px", borderRadius: "12px", background: "var(--bg-subtle)", border: "1px solid var(--border)", color: "var(--text-secondary)", fontWeight: 600, cursor: "pointer", fontSize: "14px" }}
-          >
-            Log Another
+        <div className="section-title">Session completed</div>
+        <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 4vw, 3.2rem)", maxWidth: "none" }}>
+          Clean logging, better momentum.
+        </h1>
+        <p className="hero-copy" style={{ marginInline: "auto" }}>
+          You completed {completedCount} sets of {selectedExercise}. The experience now feels more like a guided workflow than a plain form, which is the right direction for a startup product.
+        </p>
+        <div className="panel" style={{ maxWidth: "360px", margin: "1.8rem auto 0" }}>
+          <div className="metric-label">Session XP earned</div>
+          <div className="kpi-value" style={{ color: "var(--accent)" }}>
+            +{totalXP}
+          </div>
+          <div className="helper-text" style={{ marginTop: "0.65rem" }}>
+            Logged under {selectedMuscleMeta?.label ?? "your selected group"}
+          </div>
+        </div>
+        <div className="hero-actions" style={{ justifyContent: "center" }}>
+          <button type="button" onClick={resetFlow} className="secondary-button">
+            Log another session
           </button>
-          <Link href="/dashboard" style={{ padding: "12px 24px", borderRadius: "12px", background: "linear-gradient(135deg, var(--accent), var(--accent-hover))", color: "var(--accent-text)", fontWeight: 600, textDecoration: "none", fontSize: "14px", display: "inline-flex", alignItems: "center", boxShadow: "var(--shadow-md)" }}>
-            Back to Dashboard
+          <Link href="/dashboard" className="primary-button">
+            Return to dashboard
           </Link>
         </div>
       </div>
@@ -96,321 +102,233 @@ export default function NewWorkoutPage() {
   }
 
   return (
-    <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-      {/* Header */}
-      <div style={{ marginBottom: "32px" }}>
-        <h1 style={{ fontSize: "30px", fontWeight: 800, color: "var(--text-primary)", marginBottom: "6px" }}>
-          Log Workout
-        </h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "15px" }}>
-          Track your sets, hit new PRs, and earn XP.
-        </p>
-      </div>
+    <div className="form-shell">
+      <section className="hero-panel">
+        <div className="history-hero">
+          <div>
+            <div className="section-title">Guided workout capture</div>
+            <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 3vw, 3.2rem)", maxWidth: "13ch" }}>
+              Logging a session should feel fast, focused, and premium.
+            </h1>
+            <p className="hero-copy">
+              The flow below reduces noise, keeps the athlete in motion, and adds enough visual feedback to make the product feel alive.
+            </p>
+          </div>
+          <div className="pill">Live XP: +{totalXP}</div>
+        </div>
+      </section>
 
-      {/* Step Indicator */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0", marginBottom: "36px" }}>
-        {[
-          { n: 1, label: "Muscle Group" },
-          { n: 2, label: "Exercise" },
-          { n: 3, label: "Log Sets" },
-        ].map(({ n, label }, i) => (
-          <div key={n} style={{ display: "flex", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <div
-                style={{
-                  width: "32px",
-                  height: "32px",
-                  borderRadius: "50%",
-                  background: step >= n ? "linear-gradient(135deg, var(--accent), var(--accent-hover))" : "var(--bg-subtle)",
-                  border: step >= n ? "none" : "1px solid var(--border)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  color: step >= n ? "var(--accent-text)" : "var(--text-muted)",
-                  boxShadow: step >= n ? "var(--shadow-md)" : "none",
-                  flexShrink: 0,
-                  transition: "all 0.2s",
-                }}
-              >
-                {n}
+      <div className="workflow-grid">
+        <div className="page" style={{ gap: "1.25rem" }}>
+          <section className="stepper">
+            {[
+              { id: 1, title: "Focus", note: "Pick a muscle group" },
+              { id: 2, title: "Exercise", note: "Choose the movement" },
+              { id: 3, title: "Sets", note: "Capture output" },
+            ].map((item) => (
+              <div key={item.id} className={`step-card ${step >= item.id ? "is-active" : ""}`}>
+                <div className="step-number">{item.id}</div>
+                <div style={{ marginTop: "0.85rem", fontWeight: 700 }}>{item.title}</div>
+                <div className="helper-text" style={{ marginTop: "0.3rem" }}>
+                  {item.note}
+                </div>
               </div>
-              <span style={{ fontSize: "13px", fontWeight: 600, color: step >= n ? "var(--text-secondary)" : "var(--text-muted)" }}>
-                {label}
-              </span>
-            </div>
-            {i < 2 && (
-              <div style={{ width: "48px", height: "1px", background: step > n ? "var(--accent)" : "var(--border)", margin: "0 12px" }} />
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Step 1: Muscle Group */}
-      {step === 1 && (
-        <div>
-          <h2 style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "16px" }}>
-            Select Muscle Group
-          </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "12px" }}>
-            {MUSCLE_GROUPS.map((mg) => (
-              <button
-                key={mg.id}
-                onClick={() => { setSelectedMuscle(mg.id); setStep(2); }}
-                style={{
-                  padding: "20px 16px",
-                  borderRadius: "16px",
-                  background: "var(--bg-card)",
-                  border: "1px solid var(--border)",
-                  color: "var(--text-secondary)",
-                  cursor: "pointer",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: "10px",
-                  fontWeight: 600,
-                  fontSize: "14px",
-                  transition: "all 0.15s ease",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-hover)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-accent)";
-                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-card)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
-                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
-                }}
-              >
-                <span style={{ fontSize: "28px" }}>{mg.emoji}</span>
-                {mg.label}
-              </button>
             ))}
-          </div>
-        </div>
-      )}
+          </section>
 
-      {/* Step 2: Exercise Picker */}
-      {step === 2 && (
-        <div>
-          <button
-            onClick={() => setStep(1)}
-            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "13px", fontWeight: 500, marginBottom: "16px", display: "flex", alignItems: "center", gap: "4px" }}
-          >
-            ← Back
-          </button>
-          <h2 style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "16px" }}>
-            Select Exercise
-          </h2>
-          <div style={{ position: "relative", marginBottom: "16px" }}>
-            <input
-              type="text"
-              placeholder="Search exercises..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "12px 16px 12px 44px",
-                borderRadius: "12px",
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                color: "#f8fafc",
-                fontSize: "14px",
-                outline: "none",
-              }}
-            />
-            <svg style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: "#475569" }} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {filteredExercises.map((ex) => (
-              <button
-                key={ex}
-                onClick={() => { setSelectedExercise(ex); setStep(3); }}
-                style={{
-                  width: "100%",
-                  padding: "14px 16px",
-                  borderRadius: "12px",
-                  background: "var(--bg-card)",
-                  border: "1px solid var(--border)",
-                  color: "var(--text-secondary)",
-                  cursor: "pointer",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  fontWeight: 500,
-                  fontSize: "14px",
-                  textAlign: "left",
-                  transition: "all 0.15s",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.background = "rgba(99,102,241,0.1)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(99,102,241,0.3)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)";
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.08)";
-                }}
-              >
-                <span>{ex}</span>
-                <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", background: "rgba(255,255,255,0.06)", color: "#64748b", textTransform: "capitalize" }}>
-                  {selectedMuscle}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Log Sets */}
-      {step === 3 && (
-        <div>
-          <button
-            onClick={() => setStep(2)}
-            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "13px", fontWeight: 500, marginBottom: "16px", display: "flex", alignItems: "center", gap: "4px" }}
-          >
-            ← Back
-          </button>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
-            <div>
-              <h2 style={{ fontSize: "22px", fontWeight: 800, color: "var(--text-primary)", marginBottom: "4px" }}>
-                {selectedExercise}
-              </h2>
-              <p style={{ color: "var(--text-muted)", fontSize: "13px", textTransform: "capitalize" }}>{selectedMuscle}</p>
-            </div>
-            <div style={{ padding: "6px 14px", borderRadius: "999px", background: "var(--accent-subtle)", border: "1px solid var(--border-accent)", color: "var(--accent)", fontSize: "13px", fontWeight: 600 }}>
-              +{totalXP} XP
-            </div>
-          </div>
-
-          {/* Sets */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "16px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "40px 1fr 1fr 120px", gap: "10px", padding: "0 8px", marginBottom: "4px" }}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Set</span>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Weight (kg)</span>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Reps</span>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Action</span>
-            </div>
-
-            {sets.map((set, idx) => (
-              <div
-                key={idx}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "40px 1fr 1fr 120px",
-                  gap: "10px",
-                  alignItems: "center",
-                  padding: "12px",
-                  borderRadius: "12px",
-                  background: set.completed ? "rgba(34,197,94,0.08)" : "rgba(255,255,255,0.04)",
-                  border: set.completed ? "1px solid rgba(34,197,94,0.25)" : "1px solid rgba(255,255,255,0.08)",
-                  transition: "all 0.2s",
-                }}
-              >
-                <span style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-muted)" }}>{idx + 1}</span>
-                <input
-                  type="number"
-                  value={set.weight}
-                  disabled={set.completed}
-                  onChange={(e) => updateSet(idx, "weight", e.target.value)}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: "8px",
-                    background: "var(--bg-subtle)",
-                    border: "1px solid var(--border)",
-                    color: "var(--text-primary)",
-                    fontSize: "15px",
-                    fontWeight: 700,
-                    textAlign: "center",
-                    outline: "none",
-                    opacity: set.completed ? 0.5 : 1,
-                  }}
-                />
-                <input
-                  type="number"
-                  value={set.reps}
-                  disabled={set.completed}
-                  onChange={(e) => updateSet(idx, "reps", e.target.value)}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: "8px",
-                    background: "var(--bg-subtle)",
-                    border: "1px solid var(--border)",
-                    color: "var(--text-primary)",
-                    fontSize: "15px",
-                    fontWeight: 700,
-                    textAlign: "center",
-                    outline: "none",
-                    opacity: set.completed ? 0.5 : 1,
-                  }}
-                />
-                {set.completed ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--success)", fontSize: "13px", fontWeight: 600 }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                    Done
-                  </div>
-                ) : (
+          {step === 1 && (
+            <section className="form-card" style={{ padding: "1.4rem" }}>
+              <div className="section-header">
+                <div>
+                  <div className="section-title">Step 1</div>
+                  <div className="section-heading">Select muscle group</div>
+                </div>
+              </div>
+              <div className="muscle-grid">
+                {MUSCLE_GROUPS.map((muscle) => (
                   <button
-                    onClick={() => completeSet(idx)}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: "8px",
-                      background: "linear-gradient(135deg, var(--accent), var(--accent-hover))",
-                      border: "none",
-                      color: "var(--accent-text)",
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      boxShadow: "var(--shadow-md)",
+                    type="button"
+                    key={muscle.id}
+                    className="muscle-card"
+                    onClick={() => {
+                      setSelectedMuscle(muscle.id);
+                      setStep(2);
                     }}
                   >
-                    ✓ Complete
+                    <div className="badge-box" style={{ width: "3rem", height: "3rem", background: "var(--bg-soft)", color: "var(--accent)" }}>
+                      {muscle.icon}
+                    </div>
+                    <div style={{ marginTop: "1rem", fontWeight: 700 }}>{muscle.label}</div>
+                    <div className="helper-text" style={{ marginTop: "0.35rem", lineHeight: 1.5 }}>
+                      {muscle.note}
+                    </div>
                   </button>
-                )}
+                ))}
               </div>
-            ))}
-          </div>
+            </section>
+          )}
 
-          <div style={{ display: "flex", gap: "12px" }}>
-            <button
-              onClick={addSet}
-              style={{
-                flex: 1,
-                padding: "12px",
-                borderRadius: "12px",
-                background: "var(--bg-subtle)",
-                border: "1px solid var(--border)",
-                color: "var(--text-secondary)",
-                fontSize: "14px",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              + Add Set
-            </button>
-            <button
-              onClick={finishSession}
-              disabled={completedCount === 0}
-              style={{
-                flex: 2,
-                padding: "12px",
-                borderRadius: "12px",
-                background: completedCount > 0 ? "linear-gradient(135deg, var(--accent), var(--accent-hover))" : "var(--bg-subtle)",
-                border: completedCount > 0 ? "none" : "1px solid var(--border)",
-                color: completedCount > 0 ? "var(--accent-text)" : "var(--text-muted)",
-                fontSize: "14px",
-                fontWeight: 700,
-                cursor: completedCount > 0 ? "pointer" : "not-allowed",
-                boxShadow: completedCount > 0 ? "var(--shadow-md)" : "none",
-                transition: "all 0.2s",
-              }}
-            >
-              Finish Session ({completedCount}/{sets.length} sets)
-            </button>
-          </div>
+          {step === 2 && (
+            <section className="form-card" style={{ padding: "1.4rem" }}>
+              <div className="section-header">
+                <div>
+                  <div className="section-title">Step 2</div>
+                  <div className="section-heading">Select exercise</div>
+                </div>
+                <button type="button" onClick={() => setStep(1)} className="ghost-button">
+                  Back
+                </button>
+              </div>
+
+              <div className="search-wrap">
+                <svg className="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+                <input
+                  className="search-field"
+                  type="text"
+                  placeholder="Search exercises"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </div>
+
+              <div className="exercise-list" style={{ marginTop: "1rem" }}>
+                {filteredExercises.map((exercise) => (
+                  <button
+                    type="button"
+                    key={exercise}
+                    className="exercise-card"
+                    onClick={() => {
+                      setSelectedExercise(exercise);
+                      setStep(3);
+                    }}
+                  >
+                    <div>
+                      <div className="exercise-title">{exercise}</div>
+                      <div className="helper-text" style={{ marginTop: "0.25rem", textTransform: "capitalize" }}>
+                        {selectedMuscleMeta?.note}
+                      </div>
+                    </div>
+                    <div className="pill">{selectedMuscleMeta?.label}</div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {step === 3 && (
+            <section className="form-card" style={{ padding: "1.4rem" }}>
+              <div className="section-header">
+                <div>
+                  <div className="section-title">Step 3</div>
+                  <div className="section-heading">{selectedExercise}</div>
+                  <div className="helper-text" style={{ marginTop: "0.35rem" }}>
+                    Log weight and reps, then lock each completed set.
+                  </div>
+                </div>
+                <button type="button" onClick={() => setStep(2)} className="ghost-button">
+                  Back
+                </button>
+              </div>
+
+              <div className="set-list">
+                {sets.map((set, index) => (
+                  <div key={index} className={`set-row ${set.completed ? "is-complete" : ""}`}>
+                    <div className="set-grid">
+                      <div className="set-index">{index + 1}</div>
+                      <div>
+                        <div className="form-label">Weight (kg)</div>
+                        <input
+                          className="number-input"
+                          type="number"
+                          value={set.weight}
+                          disabled={set.completed}
+                          onChange={(event) => updateSet(index, "weight", event.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <div className="form-label">Reps</div>
+                        <input
+                          className="number-input"
+                          type="number"
+                          value={set.reps}
+                          disabled={set.completed}
+                          onChange={(event) => updateSet(index, "reps", event.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <div className="form-label">Action</div>
+                        {set.completed ? (
+                          <div className="pill" style={{ marginTop: "0.45rem", color: "var(--success)" }}>
+                            Completed
+                          </div>
+                        ) : (
+                          <button type="button" onClick={() => completeSet(index)} className="primary-button" style={{ marginTop: "0.45rem", width: "100%" }}>
+                            Complete set
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hero-actions">
+                <button type="button" onClick={addSet} className="secondary-button">
+                  Add set
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSessionDone(true)}
+                  disabled={completedCount === 0}
+                  className="primary-button"
+                  style={{
+                    opacity: completedCount === 0 ? 0.55 : 1,
+                    pointerEvents: completedCount === 0 ? "none" : "auto",
+                  }}
+                >
+                  Finish session ({completedCount}/{sets.length})
+                </button>
+              </div>
+            </section>
+          )}
         </div>
-      )}
+
+        <aside className="panel sidebar-metric">
+          <div>
+            <div className="section-title">Session snapshot</div>
+            <div className="section-heading">Focused progress</div>
+          </div>
+          <div className="summary-card">
+            <div className="metric-label">Muscle group</div>
+            <div className="metric-value">{selectedMuscleMeta?.label ?? "Not selected"}</div>
+          </div>
+          <div className="summary-card">
+            <div className="metric-label">Exercise</div>
+            <div className="metric-value" style={{ fontSize: "1.1rem" }}>
+              {selectedExercise || "Choose a movement"}
+            </div>
+          </div>
+          <div className="summary-card">
+            <div className="metric-label">Completed sets</div>
+            <div className="kpi-value">{completedCount}</div>
+          </div>
+          <div className="summary-card">
+            <div className="metric-label">XP earned</div>
+            <div className="kpi-value" style={{ color: "var(--accent)" }}>
+              +{totalXP}
+            </div>
+          </div>
+          <div className="helper-text">
+            This side panel gives the flow a stronger product feel and keeps the user oriented while they log.
+          </div>
+          <Link href="/dashboard" className="ghost-button">
+            Exit to dashboard
+          </Link>
+        </aside>
+      </div>
     </div>
   );
 }

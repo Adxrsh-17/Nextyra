@@ -1,13 +1,13 @@
 import Link from "next/link";
 
-const RECOVERY_MAP: Record<string, { score: number; lastTrained: string }> = {
-  Chest: { score: 25, lastTrained: "Yesterday" },
-  Back: { score: 70, lastTrained: "2 days ago" },
-  Shoulders: { score: 45, lastTrained: "Yesterday" },
-  Legs: { score: 100, lastTrained: "4 days ago" },
-  Biceps: { score: 60, lastTrained: "2 days ago" },
-  Triceps: { score: 35, lastTrained: "Yesterday" },
-  Core: { score: 90, lastTrained: "3 days ago" },
+const RECOVERY_MAP: Record<string, { score: number; lastTrained: string; target: string }> = {
+  Chest: { score: 32, lastTrained: "Yesterday", target: "Explosive push" },
+  Back: { score: 76, lastTrained: "2 days ago", target: "Strength volume" },
+  Shoulders: { score: 48, lastTrained: "Yesterday", target: "Stability work" },
+  Legs: { score: 93, lastTrained: "4 days ago", target: "Power block" },
+  Biceps: { score: 61, lastTrained: "2 days ago", target: "Accessory sets" },
+  Triceps: { score: 40, lastTrained: "Yesterday", target: "Lockout work" },
+  Core: { score: 88, lastTrained: "3 days ago", target: "Trunk control" },
 };
 
 const RECENT_SESSIONS = [
@@ -16,7 +16,7 @@ const RECENT_SESSIONS = [
   { muscle: "Legs", date: "4 days ago", volume: "9,400 kg", xp: 200, sets: 18 },
 ];
 
-const HEATMAP_DATA = Array.from({ length: 52 * 7 }, (_, i) => {
+const HEATMAP_DATA = Array.from({ length: 26 * 7 }, (_, i) => {
   const rng = Math.sin(i * 9301 + 49297) * 0.5 + 0.5;
   if (rng > 0.82) return 3;
   if (rng > 0.65) return 2;
@@ -24,17 +24,17 @@ const HEATMAP_DATA = Array.from({ length: 52 * 7 }, (_, i) => {
   return 0;
 });
 
-const heatmapColor = (v: number) => {
-  if (v === 0) return "var(--bg-subtle)";
-  if (v === 1) return "rgba(139,92,246,0.3)";
-  if (v === 2) return "rgba(139,92,246,0.6)";
-  return "var(--accent)";
+const heatmapColor = (value: number) => {
+  if (value === 0) return "rgba(255,255,255,0.04)";
+  if (value === 1) return "rgba(208, 162, 74, 0.26)";
+  if (value === 2) return "rgba(208, 162, 74, 0.5)";
+  return "linear-gradient(135deg, #b33a1f, #f0c46d)";
 };
 
-const recoveryColor = (score: number) => {
-  if (score >= 80) return { bg: "rgba(16,185,129,0.12)", border: "rgba(16,185,129,0.3)", text: "var(--success)", label: "Ready" };
-  if (score >= 50) return { bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.3)", text: "var(--warning)", label: "Partial" };
-  return { bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.3)", text: "var(--danger)", label: "Recovering" };
+const recoveryState = (score: number) => {
+  if (score >= 80) return { label: "Ready", color: "var(--success)" };
+  if (score >= 55) return { label: "Building", color: "var(--warning)" };
+  return { label: "Recovering", color: "var(--danger)" };
 };
 
 export default function DashboardPage() {
@@ -45,183 +45,187 @@ export default function DashboardPage() {
   const progress = ((xp - currentLevelXp) / (nextLevelXp - currentLevelXp)) * 100;
 
   return (
-    <div>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "36px" }}>
-        <div>
-          <h1
-            style={{
-              fontSize: "32px",
-              fontWeight: 800,
-              background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #f472b6 100%)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              marginBottom: "6px",
-            }}
-          >
-            Dashboard
-          </h1>
-          <p style={{ color: "var(--text-secondary)", fontSize: "15px" }}>Welcome back, Athlete. Ready to crush it?</p>
-        </div>
-        <Link
-          href="/workout/new"
-          style={{
-            padding: "12px 22px",
-            borderRadius: "12px",
-            background: "linear-gradient(135deg, var(--accent), var(--accent-hover))",
-            color: "var(--accent-text)",
-            textDecoration: "none",
-            fontWeight: 700,
-            fontSize: "14px",
-            boxShadow: "var(--shadow-md)",
-          }}
-        >
-          + Log Workout
-        </Link>
-      </div>
+    <div className="page">
+      <section className="hero-panel">
+        <div className="hero-grid">
+          <div>
+            <div className="hero-eyebrow pill">Adaptive performance system</div>
+            <h1 className="hero-title gradient-text">Train with clearer signals, not just more volume.</h1>
+            <p className="hero-copy">
+              Nextyra turns workout logging into a command center for recovery, consistency, and momentum. The goal is to make every training decision feel intentional.
+            </p>
+            <div className="hero-actions">
+              <Link href="/workout/new" className="primary-button">
+                Start a session
+              </Link>
+              <Link href="/history" className="secondary-button">
+                Review performance log
+              </Link>
+            </div>
+            <div className="summary-grid">
+              <span className="pill">
+                <strong>12 day streak</strong>
+              </span>
+              <span className="pill">Recovery score trending up this week</span>
+              <span className="pill">Best window for lower body today</span>
+            </div>
+          </div>
 
-      {/* Stat Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "24px" }}>
-        {/* Streak */}
-        <div style={{ padding: "20px", borderRadius: "16px", background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
-          <p style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "10px" }}>Streak</p>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontSize: "32px" }}>🔥</span>
-            <div>
-              <p style={{ fontSize: "30px", fontWeight: 900, color: "var(--streak)", lineHeight: 1 }}>12</p>
-              <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>days in a row</p>
+          <div className="hero-stats">
+            <div className="mini-stat">
+              <div className="mini-stat-label">Training readiness</div>
+              <div className="mini-stat-value is-accent">81%</div>
+              <div className="helper-text">You are primed for a high-quality session today.</div>
+            </div>
+            <div className="mini-stat">
+              <div className="mini-stat-label">Weekly load</div>
+              <div className="mini-stat-value">14.2K kg</div>
+              <div className="helper-text">Up 12% from last week without a recovery dip.</div>
+            </div>
+            <div className="mini-stat">
+              <div className="mini-stat-label">Momentum</div>
+              <div className="mini-stat-value is-warm">+420 XP</div>
+              <div className="helper-text">One more full session pushes you into level {level + 1}.</div>
             </div>
           </div>
         </div>
+      </section>
 
-        {/* Level & XP */}
-        <div style={{ padding: "20px", borderRadius: "16px", background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
-          <p style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "10px" }}>Level & XP</p>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginBottom: "10px" }}>
-            <span style={{ fontSize: "30px", fontWeight: 900, color: "var(--accent)", lineHeight: 1 }}>{level}</span>
-            <span style={{ fontSize: "13px", color: "var(--text-secondary)", fontWeight: 600 }}>Athlete</span>
+      <section className="kpi-grid">
+        <div className="panel kpi-card">
+          <div className="kpi-label">Current streak</div>
+          <div className="kpi-value" style={{ color: "var(--accent-warm)" }}>
+            12
           </div>
-          <div style={{ width: "100%", height: "6px", borderRadius: "999px", background: "var(--bg-hover)", overflow: "hidden" }}>
-            <div style={{ width: `${progress}%`, height: "100%", borderRadius: "999px", background: "linear-gradient(90deg, var(--accent), var(--accent-hover))", transition: "width 0.5s ease" }} />
+          <div className="kpi-trend">No missed training days this week</div>
+        </div>
+        <div className="panel kpi-card">
+          <div className="kpi-label">Level and XP</div>
+          <div className="kpi-value">{level}</div>
+          <div className="helper-text">{xp.toLocaleString()} XP accumulated</div>
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${progress}%` }} />
           </div>
-          <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "6px" }}>{xp.toLocaleString()} / {nextLevelXp.toLocaleString()} XP</p>
         </div>
-
-        {/* Weekly Volume */}
-        <div style={{ padding: "20px", borderRadius: "16px", background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
-          <p style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "10px" }}>Weekly Volume</p>
-          <p style={{ fontSize: "30px", fontWeight: 900, color: "var(--text-primary)", lineHeight: 1, marginBottom: "4px" }}>
-            14.2<span style={{ fontSize: "15px", color: "var(--text-muted)", fontWeight: 500, marginLeft: "4px" }}>K kg</span>
-          </p>
-          <p style={{ fontSize: "12px", color: "var(--success)", fontWeight: 600 }}>↑ +12% vs last week</p>
+        <div className="panel kpi-card">
+          <div className="kpi-label">Recovery window</div>
+          <div className="kpi-value">Legs</div>
+          <div className="kpi-trend">93% ready for your next heavy block</div>
         </div>
-      </div>
+        <div className="panel kpi-card">
+          <div className="kpi-label">Consistency rate</div>
+          <div className="kpi-value">89%</div>
+          <div className="helper-text">You logged 16 sessions in the last 18 days</div>
+        </div>
+      </section>
 
-      {/* Main grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: "20px", marginBottom: "20px" }}>
-        {/* Heatmap */}
-        <div style={{ padding: "24px", borderRadius: "16px", background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
-          <h3 style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "16px" }}>Consistency Heatmap</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(52, 1fr)", gap: "3px" }}>
-            {Array.from({ length: 52 }).map((_, week) => (
-              <div key={week} style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+      <section className="content-grid">
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="section-title">Pattern analysis</div>
+              <div className="section-heading">Consistency heatmap</div>
+            </div>
+            <div className="panel-note">A compressed 6-month view of your output rhythm.</div>
+          </div>
+          <div className="heatmap">
+            {Array.from({ length: 26 }).map((_, week) => (
+              <div key={week} className="heatmap-week">
                 {Array.from({ length: 7 }).map((_, day) => {
-                  const v = HEATMAP_DATA[week * 7 + day];
+                  const value = HEATMAP_DATA[week * 7 + day];
                   return (
                     <div
                       key={day}
-                      title={`${v} session(s)`}
-                      style={{
-                        width: "100%",
-                        aspectRatio: "1",
-                        borderRadius: "2px",
-                        background: heatmapColor(v),
-                      }}
+                      className="heatmap-cell"
+                      title={`${value} session(s)`}
+                      style={{ background: heatmapColor(value) }}
                     />
                   );
                 })}
               </div>
             ))}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "12px", justifyContent: "flex-end" }}>
-            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>Less</span>
-            {[0, 1, 2, 3].map((v) => (
-              <div key={v} style={{ width: "10px", height: "10px", borderRadius: "2px", background: heatmapColor(v) }} />
-            ))}
-            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>More</span>
+          <div className="legend">
+            <span>Light</span>
+            <span className="heatmap-cell" style={{ width: "0.8rem", background: heatmapColor(0) }} />
+            <span className="heatmap-cell" style={{ width: "0.8rem", background: heatmapColor(1) }} />
+            <span className="heatmap-cell" style={{ width: "0.8rem", background: heatmapColor(2) }} />
+            <span className="heatmap-cell" style={{ width: "0.8rem", background: heatmapColor(3) }} />
+            <span>Dense</span>
           </div>
         </div>
 
-        {/* Recovery Grid */}
-        <div style={{ padding: "24px", borderRadius: "16px", background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
-          <h3 style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "16px" }}>Muscle Recovery</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="section-title">Readiness map</div>
+              <div className="section-heading">Muscle recovery</div>
+            </div>
+          </div>
+          <div className="recovery-list">
             {Object.entries(RECOVERY_MAP).map(([muscle, data]) => {
-              const c = recoveryColor(data.score);
+              const state = recoveryState(data.score);
               return (
-                <div
-                  key={muscle}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "10px 12px",
-                    borderRadius: "10px",
-                    background: c.bg,
-                    border: `1px solid ${c.border}`,
-                  }}
-                >
+                <div className="recovery-row" key={muscle}>
                   <div>
-                    <p style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{muscle}</p>
-                    <p style={{ fontSize: "11px", color: "var(--text-muted)" }}>{data.lastTrained}</p>
+                    <div style={{ fontWeight: 700 }}>{muscle}</div>
+                    <div className="helper-text">
+                      {data.lastTrained} • Suggested focus: {data.target}
+                    </div>
+                    <div className="progress-track">
+                      <div className="progress-fill" style={{ width: `${data.score}%` }} />
+                    </div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <p style={{ fontSize: "15px", fontWeight: 800, color: c.text }}>{data.score}%</p>
-                    <p style={{ fontSize: "10px", color: c.text, fontWeight: 600, opacity: 0.8 }}>{c.label}</p>
+                    <div style={{ fontFamily: "var(--font-display)", fontSize: "1.6rem" }}>{data.score}%</div>
+                    <div style={{ color: state.color, fontWeight: 700, fontSize: "0.82rem" }}>{state.label}</div>
                   </div>
                 </div>
               );
             })}
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Recent Sessions */}
-      <div style={{ padding: "24px", borderRadius: "16px", background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
-        <h3 style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "16px" }}>Recent Sessions</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
-          {RECENT_SESSIONS.map((s, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "16px",
-                borderRadius: "12px",
-                background: "var(--bg-subtle)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
-                <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-secondary)" }}>{s.muscle}</span>
-                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{s.date}</span>
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="section-title">Recent output</div>
+            <div className="section-heading">Latest training sessions</div>
+          </div>
+          <Link href="/history" className="ghost-button">
+            See full history
+          </Link>
+        </div>
+
+        <div className="sessions-grid">
+          {RECENT_SESSIONS.map((session) => (
+            <article className="session-card" key={`${session.muscle}-${session.date}`}>
+              <div className="session-top">
+                <div className="session-title">{session.muscle} day</div>
+                <div className="pill">+{session.xp} XP</div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-                <div>
-                  <p style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "2px" }}>Volume</p>
-                  <p style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>{s.volume}</p>
+              <div className="timeline-date" style={{ marginTop: "0.35rem" }}>
+                {session.date}
+              </div>
+              <div className="session-stats">
+                <div className="summary-card">
+                  <div className="metric-label">Volume</div>
+                  <div className="metric-value">{session.volume}</div>
                 </div>
-                <div>
-                  <p style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "2px" }}>Sets</p>
-                  <p style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>{s.sets}</p>
+                <div className="summary-card">
+                  <div className="metric-label">Sets</div>
+                  <div className="metric-value">{session.sets}</div>
                 </div>
-                <div>
-                  <p style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "2px" }}>XP</p>
-                  <p style={{ fontSize: "13px", fontWeight: 700, color: "var(--accent)" }}>+{s.xp}</p>
+                <div className="summary-card">
+                  <div className="metric-label">Status</div>
+                  <div className="metric-value">Locked</div>
                 </div>
               </div>
-            </div>
+            </article>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
