@@ -9,6 +9,8 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", hint: "Daily motivation and recovery" },
   { href: "/workout/new", label: "Log Workout", hint: "Track real sets and finish strong" },
   { href: "/history", label: "Training History", hint: "Sessions, volume, and XP" },
+  { href: "/stats", label: "Stats & Analytics", hint: "1RM and muscle load progression" },
+  { href: "/metrics", label: "Body Composition", hint: "Weight and tape tracking" },
 ];
 
 export default function Sidebar() {

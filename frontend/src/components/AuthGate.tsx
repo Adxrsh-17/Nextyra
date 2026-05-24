@@ -19,8 +19,22 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (user && PUBLIC_ROUTES.has(pathname)) {
-      router.replace("/dashboard");
+    if (user) {
+      const isOnboarded = user.age !== null && user.age !== undefined;
+
+      if (!isOnboarded && pathname !== "/onboard") {
+        router.replace("/onboard");
+        return;
+      }
+
+      if (isOnboarded && pathname === "/onboard") {
+        router.replace("/dashboard");
+        return;
+      }
+
+      if (PUBLIC_ROUTES.has(pathname)) {
+        router.replace("/dashboard");
+      }
     }
   }, [pathname, ready, router, user]);
 
@@ -39,8 +53,17 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  if (user && PUBLIC_ROUTES.has(pathname)) {
-    return null;
+  if (user) {
+    const isOnboarded = user.age !== null && user.age !== undefined;
+    if (!isOnboarded && pathname !== "/onboard") {
+      return null;
+    }
+    if (isOnboarded && pathname === "/onboard") {
+      return null;
+    }
+    if (PUBLIC_ROUTES.has(pathname)) {
+      return null;
+    }
   }
 
   return <>{children}</>;

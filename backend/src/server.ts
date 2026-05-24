@@ -1,91 +1,16 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { PrismaClient } from "@prisma/client";
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 5000;
+const prisma = new PrismaClient();
 
 app.use(cors({ origin: "http://localhost:3000" }));
 app.use(express.json());
-
-type User = {
-  id: string;
-  name: string;
-  email: string;
-  password: string;
-  goal: string;
-  createdAt: string;
-};
-
-type WorkoutSet = {
-  exerciseName: string;
-  weight: number;
-  reps: number;
-  setNumber: number;
-};
-
-type Session = {
-  id: string;
-  userId: string;
-  muscleGroup: string;
-  startedAt: string;
-  completedAt?: string;
-  totalVolumeKg?: number;
-  xpEarned?: number;
-  sets: WorkoutSet[];
-};
-
-const users: User[] = [
-  {
-    id: "demo-user",
-    name: "Athlete",
-    email: "athlete@nextyra.com",
-    password: "demo1234",
-    goal: "Build muscle",
-    createdAt: new Date().toISOString(),
-  },
-];
-
-const sessions: Session[] = [];
-const sessionTokens = new Map<string, string>();
-
-const EXERCISES = [
-  { id: "1", name: "Barbell Bench Press", muscle_group: "chest", equipment: "barbell", difficulty: "intermediate" },
-  { id: "2", name: "Incline Dumbbell Press", muscle_group: "chest", equipment: "dumbbell", difficulty: "intermediate" },
-  { id: "3", name: "Cable Crossovers", muscle_group: "chest", equipment: "cable", difficulty: "beginner" },
-  { id: "4", name: "Push-ups", muscle_group: "chest", equipment: "bodyweight", difficulty: "beginner" },
-  { id: "5", name: "Dumbbell Flyes", muscle_group: "chest", equipment: "dumbbell", difficulty: "beginner" },
-  { id: "6", name: "Deadlift", muscle_group: "back", equipment: "barbell", difficulty: "advanced" },
-  { id: "7", name: "Pull-ups", muscle_group: "back", equipment: "bodyweight", difficulty: "intermediate" },
-  { id: "8", name: "Barbell Row", muscle_group: "back", equipment: "barbell", difficulty: "intermediate" },
-  { id: "9", name: "Lat Pulldown", muscle_group: "back", equipment: "cable", difficulty: "beginner" },
-  { id: "10", name: "Seated Cable Row", muscle_group: "back", equipment: "cable", difficulty: "beginner" },
-  { id: "11", name: "Overhead Press", muscle_group: "shoulders", equipment: "barbell", difficulty: "intermediate" },
-  { id: "12", name: "Lateral Raises", muscle_group: "shoulders", equipment: "dumbbell", difficulty: "beginner" },
-  { id: "13", name: "Front Raises", muscle_group: "shoulders", equipment: "dumbbell", difficulty: "beginner" },
-  { id: "14", name: "Face Pulls", muscle_group: "shoulders", equipment: "cable", difficulty: "beginner" },
-  { id: "15", name: "Arnold Press", muscle_group: "shoulders", equipment: "dumbbell", difficulty: "intermediate" },
-  { id: "16", name: "Squat", muscle_group: "legs", equipment: "barbell", difficulty: "advanced" },
-  { id: "17", name: "Leg Press", muscle_group: "legs", equipment: "machine", difficulty: "beginner" },
-  { id: "18", name: "Lunges", muscle_group: "legs", equipment: "dumbbell", difficulty: "intermediate" },
-  { id: "19", name: "Leg Extensions", muscle_group: "legs", equipment: "machine", difficulty: "beginner" },
-  { id: "20", name: "Leg Curls", muscle_group: "legs", equipment: "machine", difficulty: "beginner" },
-  { id: "21", name: "Barbell Curl", muscle_group: "biceps", equipment: "barbell", difficulty: "beginner" },
-  { id: "22", name: "Hammer Curls", muscle_group: "biceps", equipment: "dumbbell", difficulty: "beginner" },
-  { id: "23", name: "Preacher Curl", muscle_group: "biceps", equipment: "machine", difficulty: "intermediate" },
-  { id: "24", name: "Concentration Curls", muscle_group: "biceps", equipment: "dumbbell", difficulty: "beginner" },
-  { id: "25", name: "Tricep Pushdown", muscle_group: "triceps", equipment: "cable", difficulty: "beginner" },
-  { id: "26", name: "Skull Crushers", muscle_group: "triceps", equipment: "barbell", difficulty: "intermediate" },
-  { id: "27", name: "Overhead Tricep Extension", muscle_group: "triceps", equipment: "dumbbell", difficulty: "intermediate" },
-  { id: "28", name: "Dips", muscle_group: "triceps", equipment: "bodyweight", difficulty: "advanced" },
-  { id: "29", name: "Crunches", muscle_group: "core", equipment: "bodyweight", difficulty: "beginner" },
-  { id: "30", name: "Plank", muscle_group: "core", equipment: "bodyweight", difficulty: "beginner" },
-  { id: "31", name: "Russian Twists", muscle_group: "core", equipment: "bodyweight", difficulty: "intermediate" },
-  { id: "32", name: "Leg Raises", muscle_group: "core", equipment: "bodyweight", difficulty: "intermediate" },
-  { id: "33", name: "Cable Crunches", muscle_group: "core", equipment: "cable", difficulty: "intermediate" },
-];
 
 const RECOVERY_HOURS: Record<string, number> = {
   legs: 96,
@@ -97,44 +22,44 @@ const RECOVERY_HOURS: Record<string, number> = {
   core: 24,
 };
 
-function generateId() {
-  return Math.random().toString(36).slice(2, 10);
-}
-
-function publicUser(user: User) {
+function publicUser(user: any) {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
-    goal: user.goal,
+    goal: user.fitness_goal,
+    xp: user.xp,
+    level: user.level,
+    streak: user.streak,
+    age: user.age,
+    weightKg: user.weight_kg ? Number(user.weight_kg) : null,
+    heightCm: user.height_cm ? Number(user.height_cm) : null,
+    experienceLevel: user.experience_level,
   };
 }
 
-function resolveUser(token?: string) {
+async function resolveUser(token?: string) {
   if (!token) return null;
-  const userId = sessionTokens.get(token);
-  if (!userId) return null;
-  return users.find((candidate) => candidate.id === userId) ?? null;
+  try {
+    return await prisma.user.findUnique({ where: { id: token } });
+  } catch (e) {
+    return null;
+  }
 }
 
-function requireUser(token?: string) {
-  const user = resolveUser(token);
+async function requireUser(token?: string) {
+  const user = await resolveUser(token);
   if (!user) {
     return { error: { error: "Unauthorized" }, user: null };
   }
-
   return { error: null, user };
-}
-
-function userSessions(userId: string) {
-  return sessions.filter((session) => session.userId === userId);
 }
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.post("/api/auth/signup", (req, res) => {
+app.post("/api/auth/signup", async (req, res) => {
   const { name, email, password, goal } = req.body as {
     name?: string;
     email?: string;
@@ -146,43 +71,101 @@ app.post("/api/auth/signup", (req, res) => {
     return res.status(400).json({ error: "All fields are required." });
   }
 
-  const existingUser = users.find((user) => user.email.toLowerCase() === email.toLowerCase());
-  if (existingUser) {
-    return res.status(409).json({ error: "An account with this email already exists." });
+  try {
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+    if (existingUser) {
+      return res.status(409).json({ error: "An account with this email already exists." });
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email: email.toLowerCase(),
+        password,
+        fitness_goal: goal,
+        experience_level: "intermediate",
+      },
+    });
+
+    const sessionToken = user.id;
+
+    return res.status(201).json({ sessionToken, user: publicUser(user) });
+  } catch (e) {
+    console.error("Signup error:", e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body as { email?: string; password?: string };
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required." });
   }
 
-  const user: User = {
-    id: generateId(),
-    name,
-    email,
-    password,
-    goal,
-    createdAt: new Date().toISOString(),
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (!user || user.password !== password) {
+      return res.status(401).json({ error: "Invalid email or password." });
+    }
+
+    const sessionToken = user.id;
+    return res.json({ sessionToken, user: publicUser(user) });
+  } catch (e) {
+    console.error("Login error:", e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.patch("/api/auth/onboard", async (req, res) => {
+  const { token, age, weightKg, heightCm, experienceLevel, goal } = req.body as {
+    token?: string;
+    age?: number;
+    weightKg?: number;
+    heightCm?: number;
+    experienceLevel?: string;
+    goal?: string;
   };
 
-  users.push(user);
-  const sessionToken = generateId();
-  sessionTokens.set(sessionToken, user.id);
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
 
-  return res.status(201).json({ sessionToken, user: publicUser(user) });
-});
+  try {
+    const updatedUser = await prisma.user.update({
+      where: { id: auth.user.id },
+      data: {
+        ...(age !== undefined ? { age: Number(age) } : {}),
+        ...(weightKg !== undefined ? { weight_kg: Number(weightKg) } : {}),
+        ...(heightCm !== undefined ? { height_cm: Number(heightCm) } : {}),
+        ...(experienceLevel !== undefined ? { experience_level: experienceLevel } : {}),
+        ...(goal !== undefined ? { fitness_goal: goal } : {}),
+      },
+    });
 
-app.post("/api/auth/login", (req, res) => {
-  const { email, password } = req.body as { email?: string; password?: string };
-  const user = users.find((candidate) => candidate.email.toLowerCase() === email?.toLowerCase());
+    if (weightKg !== undefined) {
+      await prisma.bodyMetric.create({
+        data: {
+          user_id: auth.user.id,
+          weight_kg: Number(weightKg),
+          recorded_at: new Date(),
+        },
+      });
+    }
 
-  if (!user || user.password !== password) {
-    return res.status(401).json({ error: "Invalid email or password." });
+    return res.json({ user: publicUser(updatedUser) });
+  } catch (e) {
+    console.error("Onboarding update error:", e);
+    return res.status(500).json({ error: "Internal server error" });
   }
-
-  const sessionToken = generateId();
-  sessionTokens.set(sessionToken, user.id);
-  return res.json({ sessionToken, user: publicUser(user) });
 });
 
-app.get("/api/auth/me", (req, res) => {
+app.get("/api/auth/me", async (req, res) => {
   const token = req.query.token as string | undefined;
-  const user = resolveUser(token);
+  const user = await resolveUser(token);
 
   if (!user) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -191,36 +174,47 @@ app.get("/api/auth/me", (req, res) => {
   return res.json({ user: publicUser(user) });
 });
 
-app.get("/api/exercises", (req, res) => {
+app.get("/api/exercises", async (req, res) => {
   const { muscleGroup, search } = req.query as { muscleGroup?: string; search?: string };
-  let results = EXERCISES;
-  if (muscleGroup) results = results.filter((exercise) => exercise.muscle_group === muscleGroup.toLowerCase());
-  if (search) results = results.filter((exercise) => exercise.name.toLowerCase().includes(search.toLowerCase()));
-  res.json({ exercises: results });
+  try {
+    const exercises = await prisma.exercise.findMany({
+      where: {
+        ...(muscleGroup ? { muscle_group: muscleGroup.toLowerCase() } : {}),
+        ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
+      },
+    });
+    res.json({ exercises });
+  } catch (e) {
+    console.error("Fetch exercises error:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-app.post("/api/sessions", (req, res) => {
+app.post("/api/sessions", async (req, res) => {
   const { token, muscleGroup } = req.body as { token?: string; muscleGroup?: string };
-  const auth = requireUser(token);
+  const auth = await requireUser(token);
   if (!auth.user) return res.status(401).json(auth.error);
 
   if (!muscleGroup) {
     return res.status(400).json({ error: "muscleGroup is required" });
   }
 
-  const session: Session = {
-    id: generateId(),
-    userId: auth.user.id,
-    muscleGroup,
-    startedAt: new Date().toISOString(),
-    sets: [],
-  };
-
-  sessions.push(session);
-  return res.status(201).json({ session });
+  try {
+    const session = await prisma.workoutSession.create({
+      data: {
+        user_id: auth.user.id,
+        muscle_group: muscleGroup.toLowerCase(),
+        started_at: new Date(),
+      },
+    });
+    return res.status(201).json({ session });
+  } catch (e) {
+    console.error("Create session error:", e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-app.post("/api/sets", (req, res) => {
+app.post("/api/sets", async (req, res) => {
   const { token, sessionId, exerciseName, weight, reps, setNumber } = req.body as {
     token?: string;
     sessionId?: string;
@@ -229,103 +223,428 @@ app.post("/api/sets", (req, res) => {
     reps?: number;
     setNumber?: number;
   };
-  const auth = requireUser(token);
+  const auth = await requireUser(token);
   if (!auth.user) return res.status(401).json(auth.error);
 
-  const session = sessions.find((candidate) => candidate.id === sessionId && candidate.userId === auth.user.id);
-  if (!session) return res.status(404).json({ error: "Session not found" });
-
-  if (!exerciseName || !weight || !reps || !setNumber) {
+  if (!sessionId || !exerciseName || weight === undefined || reps === undefined || setNumber === undefined) {
     return res.status(400).json({ error: "Missing set fields." });
   }
 
-  const set: WorkoutSet = { exerciseName, weight, reps, setNumber };
-  session.sets.push(set);
-  return res.status(201).json({ set });
+  try {
+    const session = await prisma.workoutSession.findFirst({
+      where: { id: sessionId, user_id: auth.user.id },
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const exercise = await prisma.exercise.findFirst({
+      where: { name: { equals: exerciseName, mode: "insensitive" } },
+    });
+    if (!exercise) return res.status(404).json({ error: "Exercise not found" });
+
+    // Auto-detect Personal Records (PR)
+    const existingPr = await prisma.personalRecord.findFirst({
+      where: {
+        user_id: auth.user.id,
+        exercise_id: exercise.id,
+      },
+      orderBy: { weight_kg: "desc" },
+    });
+
+    const isPr = !existingPr || weight > Number(existingPr.weight_kg || 0);
+
+    if (isPr) {
+      await prisma.personalRecord.create({
+        data: {
+          user_id: auth.user.id,
+          exercise_id: exercise.id,
+          weight_kg: weight,
+          reps: reps,
+          estimated_1rm: weight * (1 + reps / 30), // standard Epley formula for 1RM estimation
+          achieved_at: new Date(),
+        },
+      });
+    }
+
+    const set = await prisma.workoutSet.create({
+      data: {
+        session_id: sessionId,
+        exercise_id: exercise.id,
+        set_number: setNumber,
+        reps: reps,
+        weight_kg: weight,
+        is_pr: isPr,
+        completed_at: new Date(),
+      },
+    });
+
+    return res.status(201).json({ set });
+  } catch (e) {
+    console.error("Create set error:", e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-app.patch("/api/sessions/:id/complete", (req, res) => {
+app.patch("/api/sessions/:id/complete", async (req, res) => {
   const { token } = req.body as { token?: string };
-  const auth = requireUser(token);
+  const auth = await requireUser(token);
   if (!auth.user) return res.status(401).json(auth.error);
 
-  const session = sessions.find((candidate) => candidate.id === req.params.id && candidate.userId === auth.user.id);
-  if (!session) return res.status(404).json({ error: "Session not found" });
+  try {
+    const session = await prisma.workoutSession.findFirst({
+      where: { id: req.params.id, user_id: auth.user.id },
+      include: { workout_sets: true },
+    });
 
-  const totalVolumeKg = session.sets.reduce((accumulator, set) => accumulator + set.weight * set.reps, 0);
-  const xpEarned = session.sets.length * 10 + 100;
+    if (!session) return res.status(404).json({ error: "Session not found" });
 
-  session.completedAt = new Date().toISOString();
-  session.totalVolumeKg = totalVolumeKg;
-  session.xpEarned = xpEarned;
+    const totalVolumeKg = session.workout_sets.reduce(
+      (acc, set) => acc + Number(set.weight_kg || 0) * Number(set.reps || 0),
+      0
+    );
+    const xpEarned = session.workout_sets.length * 10 + 100;
 
-  return res.json({ session, xpEarned, totalVolumeKg, message: "Session completed!" });
+    const updatedSession = await prisma.workoutSession.update({
+      where: { id: req.params.id },
+      data: {
+        completed_at: new Date(),
+        total_volume_kg: totalVolumeKg,
+        xp_earned: xpEarned,
+      },
+    });
+
+    const newXp = auth.user.xp + xpEarned;
+    const newLevel = Math.floor(newXp / 500) + 1;
+
+    await prisma.xpTransaction.create({
+      data: {
+        user_id: auth.user.id,
+        amount: xpEarned,
+        reason: `Completed ${session.muscle_group} session`,
+      },
+    });
+
+    let newStreak = auth.user.streak;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (auth.user.last_active_date) {
+      const lastActive = new Date(auth.user.last_active_date);
+      lastActive.setHours(0, 0, 0, 0);
+      const diffTime = Math.abs(today.getTime() - lastActive.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 1) {
+        newStreak += 1;
+      } else if (diffDays > 1) {
+        newStreak = 1;
+      }
+    } else {
+      newStreak = 1;
+    }
+
+    await prisma.user.update({
+      where: { id: auth.user.id },
+      data: {
+        xp: newXp,
+        level: newLevel,
+        streak: newStreak,
+        last_active_date: new Date(),
+      },
+    });
+
+    return res.json({ session: updatedSession, xpEarned, totalVolumeKg, message: "Session completed!" });
+  } catch (e) {
+    console.error("Complete session error:", e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-app.get("/api/sessions", (req, res) => {
+app.get("/api/sessions", async (req, res) => {
   const token = req.query.token as string | undefined;
-  const auth = requireUser(token);
+  const auth = await requireUser(token);
   if (!auth.user) return res.status(401).json(auth.error);
 
-  const completed = userSessions(auth.user.id).filter((session) => !!session.completedAt);
-  res.json({ sessions: completed.sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime()) });
+  try {
+    const sessions = await prisma.workoutSession.findMany({
+      where: {
+        user_id: auth.user.id,
+        completed_at: { not: null },
+      },
+      include: {
+        workout_sets: {
+          include: {
+            exercise: true,
+          },
+        },
+      },
+      orderBy: { completed_at: "desc" },
+    });
+
+    const formattedSessions = sessions.map((session) => ({
+      id: session.id,
+      userId: session.user_id,
+      muscleGroup: session.muscle_group,
+      startedAt: session.started_at?.toISOString(),
+      completedAt: session.completed_at?.toISOString(),
+      totalVolumeKg: Number(session.total_volume_kg || 0),
+      xpEarned: session.xp_earned,
+      sets: session.workout_sets.map((set) => ({
+        exerciseName: set.exercise.name,
+        weight: Number(set.weight_kg || 0),
+        reps: set.reps,
+        setNumber: set.set_number,
+      })),
+    }));
+
+    res.json({ sessions: formattedSessions });
+  } catch (e) {
+    console.error("Get sessions error:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-app.get("/api/agents/recovery", (req, res) => {
+app.get("/api/agents/recovery", async (req, res) => {
   const token = req.query.token as string | undefined;
-  const auth = requireUser(token);
+  const auth = await requireUser(token);
   if (!auth.user) return res.status(401).json(auth.error);
 
   const muscleGroups = ["chest", "back", "shoulders", "legs", "biceps", "triceps", "core"];
   const recovery: Record<string, number> = {};
 
-  for (const muscleGroup of muscleGroups) {
-    const lastSession = userSessions(auth.user.id)
-      .filter((session) => session.muscleGroup === muscleGroup && !!session.completedAt)
-      .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime())[0];
+  try {
+    for (const muscleGroup of muscleGroups) {
+      const lastSession = await prisma.workoutSession.findFirst({
+        where: {
+          user_id: auth.user.id,
+          muscle_group: muscleGroup.toLowerCase(),
+          completed_at: { not: null },
+        },
+        orderBy: { completed_at: "desc" },
+      });
 
-    if (!lastSession) {
-      recovery[muscleGroup] = 100;
-      continue;
+      if (!lastSession) {
+        recovery[muscleGroup] = 100;
+        continue;
+      }
+
+      const hoursElapsed = (Date.now() - new Date(lastSession.completed_at!).getTime()) / 3_600_000;
+      const volumeFactor = Math.min(Number(lastSession.total_volume_kg || 0) / 5000, 1.5);
+      const score = Math.max(0, 100 - (hoursElapsed / RECOVERY_HOURS[muscleGroup]) * 100 * (volumeFactor || 1));
+      recovery[muscleGroup] = Math.round(score);
     }
 
-    const hoursElapsed = (Date.now() - new Date(lastSession.completedAt!).getTime()) / 3_600_000;
-    const volumeFactor = Math.min((lastSession.totalVolumeKg || 0) / 5000, 1.5);
-    const score = Math.max(0, 100 - (hoursElapsed / RECOVERY_HOURS[muscleGroup]) * 100 * (volumeFactor || 1));
-    recovery[muscleGroup] = Math.round(score);
+    res.json({ recovery });
+  } catch (e) {
+    console.error("Recovery calculation error:", e);
+    res.status(500).json({ error: "Internal server error" });
   }
-
-  res.json({ recovery });
 });
 
-app.get("/api/dashboard", (req, res) => {
+app.get("/api/dashboard", async (req, res) => {
   const token = req.query.token as string | undefined;
-  const auth = requireUser(token);
+  const auth = await requireUser(token);
   if (!auth.user) return res.status(401).json(auth.error);
 
-  const completed = userSessions(auth.user.id).filter((session) => !!session.completedAt);
-  const totalXP = completed.reduce((accumulator, session) => accumulator + (session.xpEarned || 0), 0);
-  const level = Math.floor(totalXP / 500) + 1;
-  const totalVolume = completed.reduce((accumulator, session) => accumulator + (session.totalVolumeKg || 0), 0);
-  const thisWeekVolume = completed
-    .filter((session) => Date.now() - new Date(session.completedAt!).getTime() <= 7 * 24 * 60 * 60 * 1000)
-    .reduce((accumulator, session) => accumulator + (session.totalVolumeKg || 0), 0);
+  try {
+    const completedSessions = await prisma.workoutSession.findMany({
+      where: {
+        user_id: auth.user.id,
+        completed_at: { not: null },
+      },
+      include: {
+        workout_sets: true,
+      },
+      orderBy: { completed_at: "desc" },
+    });
 
-  res.json({
-    totalSessions: completed.length,
-    totalXP,
-    level,
-    totalVolumeKg: totalVolume,
-    weeklyVolumeKg: thisWeekVolume,
-    recentSessions: completed.slice(0, 5).map((session) => ({
+    const totalXP = auth.user.xp;
+    const level = auth.user.level;
+    const totalVolume = completedSessions.reduce((acc, session) => acc + Number(session.total_volume_kg || 0), 0);
+    const thisWeekVolume = completedSessions
+      .filter((session) => Date.now() - new Date(session.completed_at!).getTime() <= 7 * 24 * 60 * 60 * 1000)
+      .reduce((acc, session) => acc + Number(session.total_volume_kg || 0), 0);
+
+    const recentSessions = completedSessions.slice(0, 5).map((session) => ({
       id: session.id,
-      muscle: session.muscleGroup,
-      date: session.completedAt,
-      volume: session.totalVolumeKg || 0,
-      xp: session.xpEarned || 0,
-      sets: session.sets.length,
-    })),
-  });
+      muscle: session.muscle_group,
+      date: session.completed_at?.toISOString(),
+      volume: Number(session.total_volume_kg || 0),
+      xp: session.xp_earned || 0,
+      sets: session.workout_sets.length,
+    }));
+
+    res.json({
+      totalSessions: completedSessions.length,
+      totalXP,
+      level,
+      totalVolumeKg: totalVolume,
+      weeklyVolumeKg: thisWeekVolume,
+      recentSessions,
+    });
+  } catch (e) {
+    console.error("Dashboard error:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/metrics", async (req, res) => {
+  const { token, weightKg, bodyFatPct, chestCm, waistCm, armCm, legCm } = req.body as {
+    token?: string;
+    weightKg?: number;
+    bodyFatPct?: number;
+    chestCm?: number;
+    waistCm?: number;
+    armCm?: number;
+    legCm?: number;
+  };
+
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const metric = await prisma.bodyMetric.create({
+      data: {
+        user_id: auth.user.id,
+        weight_kg: weightKg !== undefined ? Number(weightKg) : null,
+        body_fat_pct: bodyFatPct !== undefined ? Number(bodyFatPct) : null,
+        chest_cm: chestCm !== undefined ? Number(chestCm) : null,
+        waist_cm: waistCm !== undefined ? Number(waistCm) : null,
+        arm_cm: armCm !== undefined ? Number(armCm) : null,
+        leg_cm: legCm !== undefined ? Number(legCm) : null,
+        recorded_at: new Date(),
+      },
+    });
+
+    if (weightKg !== undefined) {
+      await prisma.user.update({
+        where: { id: auth.user.id },
+        data: { weight_kg: Number(weightKg) },
+      });
+    }
+
+    return res.status(201).json({ metric });
+  } catch (e) {
+    console.error("Save metrics error:", e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/metrics", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const metrics = await prisma.bodyMetric.findMany({
+      where: { user_id: auth.user.id },
+      orderBy: { recorded_at: "asc" },
+    });
+
+    const formattedMetrics = metrics.map((m) => ({
+      id: m.id,
+      weightKg: m.weight_kg ? Number(m.weight_kg) : null,
+      bodyFatPct: m.body_fat_pct ? Number(m.body_fat_pct) : null,
+      chestCm: m.chest_cm ? Number(m.chest_cm) : null,
+      waistCm: m.waist_cm ? Number(m.waist_cm) : null,
+      armCm: m.arm_cm ? Number(m.arm_cm) : null,
+      legCm: m.leg_cm ? Number(m.leg_cm) : null,
+      recordedAt: m.recorded_at.toISOString(),
+    }));
+
+    res.json({ metrics: formattedMetrics });
+  } catch (e) {
+    console.error("Get metrics error:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/stats/exercises", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const sets = await prisma.workoutSet.findMany({
+      where: {
+        session: {
+          user_id: auth.user.id,
+          completed_at: { not: null },
+        },
+      },
+      include: {
+        exercise: true,
+        session: true,
+      },
+      orderBy: { completed_at: "asc" },
+    });
+
+    const exerciseHistory: Record<string, any[]> = {};
+
+    for (const set of sets) {
+      const exName = set.exercise.name;
+      if (!exerciseHistory[exName]) {
+        exerciseHistory[exName] = [];
+      }
+
+      const weight = Number(set.weight_kg || 0);
+      const reps = set.reps || 0;
+      const estimated1Rm = weight * (1 + reps / 30);
+
+      exerciseHistory[exName].push({
+        date: set.completed_at ? set.completed_at.toISOString() : set.session.completed_at?.toISOString(),
+        weight,
+        reps,
+        estimated1Rm: Math.round(estimated1Rm * 10) / 10,
+        volume: weight * reps,
+      });
+    }
+
+    res.json({ exerciseHistory });
+  } catch (e) {
+    console.error("Exercise stats error:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/stats/volume", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const sessions = await prisma.workoutSession.findMany({
+      where: {
+        user_id: auth.user.id,
+        completed_at: {
+          gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        },
+      },
+      include: {
+        workout_sets: true,
+      },
+    });
+
+    const volumeByMuscle: Record<string, number> = {};
+    const muscleGroups = ["chest", "back", "shoulders", "legs", "biceps", "triceps", "core"];
+    for (const muscle of muscleGroups) {
+      volumeByMuscle[muscle] = 0;
+    }
+
+    for (const session of sessions) {
+      if (!session.muscle_group) continue;
+      const muscle = session.muscle_group.toLowerCase();
+      const vol = session.workout_sets.reduce(
+        (acc, set) => acc + Number(set.weight_kg || 0) * Number(set.reps || 0),
+        0
+      );
+      volumeByMuscle[muscle] = (volumeByMuscle[muscle] || 0) + vol;
+    }
+
+    res.json({ volumeByMuscle });
+  } catch (e) {
+    console.error("Volume stats error:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.listen(port, () => {
