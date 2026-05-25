@@ -8,6 +8,11 @@ type User = {
   name: string;
   email: string;
   goal: string;
+  age?: number | null;
+  weightKg?: number | null;
+  heightCm?: number | null;
+  experienceLevel?: string | null;
+  subscriptionTier?: string | null;
 };
 
 type AuthContextValue = {
@@ -15,7 +20,9 @@ type AuthContextValue = {
   ready: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (payload: { name: string; email: string; password: string; goal: string }) => Promise<void>;
+  onboard: (payload: { age: number; weightKg: number; heightCm: number; experienceLevel: string; goal: string }) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 };
 
 type AuthResponse = {
@@ -30,21 +37,20 @@ const AuthContext = createContext<AuthContextValue>({
   ready: false,
   login: async () => {},
   signup: async () => {},
+  onboard: async () => {},
   logout: () => {},
+  refreshUser: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const ready = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false
-  );
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const token = window.localStorage.getItem(STORAGE_KEY);
 
     if (!token) {
+      setReady(true);
       return;
     }
 
@@ -55,6 +61,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {
         window.localStorage.removeItem(STORAGE_KEY);
         setUser(null);
+      })
+      .finally(() => {
+        setReady(true);
       });
   }, []);
 
@@ -92,12 +101,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function onboard(payload: { age: number; weightKg: number; heightCm: number; experienceLevel: string; goal: string }) {
+    try {
+      const token = window.localStorage.getItem(STORAGE_KEY);
+      if (!token) throw new Error("Unauthorized");
+
+      const response = await apiFetch<{ user: User }>("/api/auth/onboard", {
+        method: "PATCH",
+        body: JSON.stringify({ token, ...payload }),
+      });
+
+      setUser(response.user);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new Error("Unable to save your onboarding details.");
+    }
+  }
+
   function logout() {
     window.localStorage.removeItem(STORAGE_KEY);
     setUser(null);
   }
 
-  return <AuthContext.Provider value={{ user, ready, login, signup, logout }}>{children}</AuthContext.Provider>;
+  async function refreshUser() {
+    const token = window.localStorage.getItem(STORAGE_KEY);
+    if (!token) return;
+    try {
+      const response = await apiFetch<{ user: User }>(`/api/auth/me?token=${encodeURIComponent(token)}`);
+      setUser(response.user);
+    } catch (e) {
+      console.error("Refresh user failed", e);
+    }
+  }
+
+  return <AuthContext.Provider value={{ user, ready, login, signup, onboard, logout, refreshUser }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

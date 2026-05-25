@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "nodemon src/server.ts",
+    "dev": "prisma generate && nodemon src/server.ts",
     "seed": "ts-node src/seed.ts"
   },
   "dependencies": {
@@ -14,7 +14,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "redis": "^4.6.14"
+    "redis": "^4.6.14",
+    "stripe": "^22.1.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

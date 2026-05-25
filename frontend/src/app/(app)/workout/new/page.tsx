@@ -120,9 +120,63 @@ export default function NewWorkoutPage() {
   const [coachMood, setCoachMood] = useState<Mood>("steady");
   const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([{ role: "assistant", content: COACH_WELCOME }]);
 
+  // Rest Timer State
+  const [showTimer, setShowTimer] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(90);
+  const [timerInitial, setTimerInitial] = useState(90);
+  const [timerActive, setTimerActive] = useState(false);
+
   const token = readToken();
   const selectedMuscleMeta = MUSCLE_GROUPS.find((group) => group.id === selectedMuscle);
   const completedCount = sets.filter((set) => set.completed).length;
+
+  useEffect(() => {
+    let interval: any = null;
+    if (timerActive && timerSeconds > 0) {
+      interval = setInterval(() => {
+        setTimerSeconds((prev) => prev - 1);
+      }, 1000);
+    } else if (timerSeconds === 0 && timerActive) {
+      setTimerActive(false);
+      playChime();
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [timerActive, timerSeconds]);
+
+  function playChime() {
+    if (typeof window === "undefined") return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const playTone = (time: number, freq: number, duration: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, time);
+        gain.gain.setValueAtTime(0.15, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+        osc.start(time);
+        osc.stop(time + duration);
+      };
+      const now = ctx.currentTime;
+      playTone(now, 587.33, 0.4); // D5
+      playTone(now + 0.15, 880, 0.5); // A5
+    } catch (e) {
+      console.warn("Chime error:", e);
+    }
+  }
+
+  function startRestTimer(duration = 90) {
+    setTimerInitial(duration);
+    setTimerSeconds(duration);
+    setTimerActive(true);
+    setShowTimer(true);
+  }
 
   useEffect(() => {
     if (!selectedMuscle) return;
@@ -204,6 +258,7 @@ export default function NewWorkoutPage() {
 
       setSets((previous) => previous.map((entry, currentIndex) => (currentIndex === index ? { ...entry, completed: true } : entry)));
       setTotalXP((currentXp) => currentXp + 10);
+      startRestTimer(90);
     } catch (submitError) {
       setError(submitError instanceof ApiError ? submitError.message : "Unable to save the set.");
     }
@@ -531,6 +586,81 @@ export default function NewWorkoutPage() {
           </Link>
         </aside>
       </div>
+
+      {showTimer && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <h3 className="section-title" style={{ textAlign: "center", fontSize: "1.1rem" }}>Rest Period</h3>
+            <div className="timer-circle-wrap">
+              <svg width="160" height="160" viewBox="0 0 160 160">
+                <circle cx="80" cy="80" r="70" className="timer-bg-circle" />
+                <circle 
+                  cx="80" 
+                  cy="80" 
+                  r="70" 
+                  className="timer-progress-circle" 
+                  style={{
+                    strokeDasharray: 439.8,
+                    strokeDashoffset: 439.8 - (439.8 * (timerInitial > 0 ? timerSeconds / timerInitial : 0))
+                  }}
+                />
+              </svg>
+              <div className="timer-text">
+                {Math.floor(timerSeconds / 60)}:{(timerSeconds % 60).toString().padStart(2, "0")}
+              </div>
+            </div>
+            
+            <p className="helper-text" style={{ textAlign: "center", marginBlock: "0.5rem 1.5rem", fontSize: "0.9rem" }}>
+              {timerSeconds > 0 ? "Prepare for your next set." : "Rest complete! Time to lift."}
+            </p>
+            
+            <div className="hero-actions" style={{ justifyContent: "center", gap: "0.75rem", margin: 0 }}>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setTimerSeconds((prev) => Math.max(10, prev - 30));
+                  setTimerInitial((prev) => Math.max(10, prev - 30));
+                }}
+                className="secondary-button"
+                style={{ paddingInline: "0.95rem", paddingBlock: "0.6rem", fontSize: "0.9rem" }}
+              >
+                -30s
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setTimerActive(!timerActive)}
+                className="primary-button"
+                style={{ minWidth: "5.5rem", paddingBlock: "0.6rem", fontSize: "0.9rem" }}
+              >
+                {timerSeconds === 0 ? "Restart" : timerActive ? "Pause" : "Resume"}
+              </button>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setTimerSeconds((prev) => prev + 30);
+                  setTimerInitial((prev) => prev + 30);
+                }}
+                className="secondary-button"
+                style={{ paddingInline: "0.95rem", paddingBlock: "0.6rem", fontSize: "0.9rem" }}
+              >
+                +30s
+              </button>
+            </div>
+            
+            <button 
+              type="button" 
+              onClick={() => {
+                setTimerActive(false);
+                setShowTimer(false);
+              }}
+              className="ghost-button"
+              style={{ marginTop: "1.2rem", alignSelf: "center", paddingBlock: "0.5rem", fontSize: "0.85rem" }}
+            >
+              Skip Rest
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

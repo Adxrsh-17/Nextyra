@@ -5,10 +5,21 @@ import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "./ThemeProvider";
 import { useAuth } from "./AuthProvider";
 
+function formatTier(tier?: string | null) {
+  if (!tier || tier === "free") return "Free Tier";
+  if (tier === "lift_start") return "Lift Start";
+  if (tier === "momentum_pro") return "Momentum Pro";
+  if (tier === "coach_console") return "Coach Console";
+  return tier.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
 const navItems = [
   { href: "/dashboard", label: "Dashboard", hint: "Daily motivation and recovery" },
   { href: "/workout/new", label: "Log Workout", hint: "Track real sets and finish strong" },
   { href: "/history", label: "Training History", hint: "Sessions, volume, and XP" },
+  { href: "/stats", label: "Stats & Analytics", hint: "1RM and muscle load progression" },
+  { href: "/metrics", label: "Body Composition", hint: "Weight and tape tracking" },
+  { href: "/billing", label: "Membership Options", hint: "Upgrade subscription & plans" },
 ];
 
 export default function Sidebar() {
@@ -77,7 +88,10 @@ export default function Sidebar() {
           <div style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>Signed in as</div>
           <div style={{ marginTop: "0.3rem", fontSize: "1.05rem", fontWeight: 700 }}>{user?.name ?? "Athlete"}</div>
           <div className="helper-text" style={{ marginTop: "0.3rem" }}>
-            {user?.goal ?? "Build muscle"}
+            Goal: {user?.goal ?? "Build muscle"}
+          </div>
+          <div className="pill" style={{ display: "inline-block", marginTop: "0.55rem", marginBottom: "0.75rem", fontSize: "0.75rem", background: "var(--bg-strong)", color: "var(--accent-strong)", borderColor: "var(--border-strong)", borderWidth: "1px", borderStyle: "solid", fontWeight: 700 }}>
+            {formatTier(user?.subscriptionTier)}
           </div>
           <button
             type="button"
@@ -86,6 +100,7 @@ export default function Sidebar() {
               logout();
               router.replace("/login");
             }}
+            style={{ width: "100%", justifyContent: "center" }}
           >
             Log out
           </button>
