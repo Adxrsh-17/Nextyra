@@ -12,6 +12,7 @@ type User = {
   weightKg?: number | null;
   heightCm?: number | null;
   experienceLevel?: string | null;
+  subscriptionTier?: string | null;
 };
 
 type AuthContextValue = {
@@ -21,6 +22,7 @@ type AuthContextValue = {
   signup: (payload: { name: string; email: string; password: string; goal: string }) => Promise<void>;
   onboard: (payload: { age: number; weightKg: number; heightCm: number; experienceLevel: string; goal: string }) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 };
 
 type AuthResponse = {
@@ -37,20 +39,18 @@ const AuthContext = createContext<AuthContextValue>({
   signup: async () => {},
   onboard: async () => {},
   logout: () => {},
+  refreshUser: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const ready = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false
-  );
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const token = window.localStorage.getItem(STORAGE_KEY);
 
     if (!token) {
+      setReady(true);
       return;
     }
 
@@ -61,6 +61,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {
         window.localStorage.removeItem(STORAGE_KEY);
         setUser(null);
+      })
+      .finally(() => {
+        setReady(true);
       });
   }, []);
 
@@ -122,7 +125,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }
 
-  return <AuthContext.Provider value={{ user, ready, login, signup, onboard, logout }}>{children}</AuthContext.Provider>;
+  async function refreshUser() {
+    const token = window.localStorage.getItem(STORAGE_KEY);
+    if (!token) return;
+    try {
+      const response = await apiFetch<{ user: User }>(`/api/auth/me?token=${encodeURIComponent(token)}`);
+      setUser(response.user);
+    } catch (e) {
+      console.error("Refresh user failed", e);
+    }
+  }
+
+  return <AuthContext.Provider value={{ user, ready, login, signup, onboard, logout, refreshUser }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

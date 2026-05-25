@@ -1,4 +1,5 @@
 import Sidebar from "@/components/Sidebar";
+import ChatDrawer from "@/components/ChatDrawer";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -7,6 +8,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <main className="app-main">
         {children}
       </main>
+      <ChatDrawer />
     </div>
   );
 }

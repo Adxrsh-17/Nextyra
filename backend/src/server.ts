@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
+import { stripe } from "./lib/stripe";
+import { generateText } from "./lib/llm";
 
 dotenv.config();
 
@@ -10,7 +12,13 @@ const port = process.env.PORT || 5000;
 const prisma = new PrismaClient();
 
 app.use(cors({ origin: "http://localhost:3000" }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req: any, _res, buf) => {
+    if (req.originalUrl.startsWith("/api/payments/webhook")) {
+      req.rawBody = buf;
+    }
+  }
+}));
 
 const RECOVERY_HOURS: Record<string, number> = {
   legs: 96,
@@ -35,6 +43,7 @@ function publicUser(user: any) {
     weightKg: user.weight_kg ? Number(user.weight_kg) : null,
     heightCm: user.height_cm ? Number(user.height_cm) : null,
     experienceLevel: user.experience_level,
+    subscriptionTier: user.subscription_tier,
   };
 }
 
@@ -644,6 +653,229 @@ app.get("/api/stats/volume", async (req, res) => {
   } catch (e) {
     console.error("Volume stats error:", e);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/payments/create-checkout-session", async (req, res) => {
+  const { token, plan } = req.body as { token?: string; plan?: string };
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  if (!plan || !["lift_start", "momentum_pro", "coach_console"].includes(plan)) {
+    return res.status(400).json({ error: "Invalid plan selection" });
+  }
+
+  const planNames: Record<string, string> = {
+    lift_start: "Lift Start Membership",
+    momentum_pro: "Momentum Pro Membership",
+    coach_console: "Coach Console Membership",
+  };
+
+  const planPrices: Record<string, number> = {
+    lift_start: 900, // $9.00
+    momentum_pro: 1900, // $19.00
+    coach_console: 4900, // $49.00
+  };
+
+  try {
+    const isMock = !process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.startsWith("sk_test_51PxxxxMock");
+
+    if (isMock) {
+      const mockSessionUrl = `http://localhost:3000/payment/success?session_id=mock_session_${Date.now()}&plan=${plan}`;
+      return res.status(200).json({ url: mockSessionUrl });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: planNames[plan],
+              description: `Nextyra Fitness - ${planNames[plan]} subscription`,
+            },
+            unit_amount: planPrices[plan],
+            recurring: { interval: "month" },
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "subscription",
+      success_url: `http://localhost:3000/payment/success?session_id={CHECKOUT_SESSION_ID}&plan=${plan}`,
+      cancel_url: `http://localhost:3000/payment/cancel`,
+      metadata: {
+        userId: auth.user.id,
+        plan,
+      },
+    });
+
+    return res.status(200).json({ url: session.url });
+  } catch (e) {
+    console.error("Create checkout session failed:", e);
+    return res.status(500).json({ error: "Payment checkout initialization failed" });
+  }
+});
+
+app.post("/api/payments/webhook", async (req: any, res) => {
+  const sig = req.headers["stripe-signature"];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!sig || !webhookSecret) {
+    return res.status(400).json({ error: "Missing webhook headers" });
+  }
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.rawBody, sig, webhookSecret);
+  } catch (err: any) {
+    console.error("Webhook signature verification failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object as any;
+    const userId = session.metadata?.userId;
+    const plan = session.metadata?.plan;
+
+    if (userId && plan) {
+      try {
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            subscription_tier: plan,
+            stripe_customer_id: session.customer?.toString() || null,
+            stripe_subscription_id: session.subscription?.toString() || null,
+          },
+        });
+        console.log(`Successfully upgraded user ${userId} to ${plan}`);
+      } catch (dbErr) {
+        console.error("Database update from webhook failed:", dbErr);
+      }
+    }
+  }
+
+  if (event.type === "customer.subscription.deleted") {
+    const subscription = event.data.object as any;
+    try {
+      await prisma.user.update({
+        where: { stripe_subscription_id: subscription.id },
+        data: {
+          subscription_tier: "free",
+          stripe_subscription_id: null,
+        },
+      });
+      console.log(`Subscription deleted: ${subscription.id}`);
+    } catch (dbErr) {
+      console.error("Database subscription delete failed:", dbErr);
+    }
+  }
+
+  res.json({ received: true });
+});
+
+app.post("/api/payments/mock-success", async (req, res) => {
+  const { token, plan } = req.body as { token?: string; plan?: string };
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  if (!plan || !["lift_start", "momentum_pro", "coach_console"].includes(plan)) {
+    return res.status(400).json({ error: "Invalid plan selection" });
+  }
+
+  try {
+    const updated = await prisma.user.update({
+      where: { id: auth.user.id },
+      data: { subscription_tier: plan },
+    });
+    return res.json({ user: publicUser(updated) });
+  } catch (e) {
+    console.error("Mock payment success update failed:", e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/chat", async (req, res) => {
+  const { token, message } = req.body as { token?: string; message?: string };
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  if (!message || !message.trim()) {
+    return res.status(400).json({ error: "Message is required" });
+  }
+
+  try {
+    const completedSessions = await prisma.workoutSession.findMany({
+      where: { user_id: auth.user.id, completed_at: { not: null } },
+      include: { workout_sets: { include: { exercise: true } } },
+      orderBy: { completed_at: "desc" },
+      take: 10,
+    });
+
+    const metrics = await prisma.bodyMetric.findMany({
+      where: { user_id: auth.user.id },
+      orderBy: { recorded_at: "desc" },
+      take: 5,
+    });
+
+    const muscleGroups = ["chest", "back", "shoulders", "legs", "biceps", "triceps", "core"];
+    const recovery: Record<string, number> = {};
+    for (const muscleGroup of muscleGroups) {
+      const lastSession = await prisma.workoutSession.findFirst({
+        where: { user_id: auth.user.id, muscle_group: muscleGroup.toLowerCase(), completed_at: { not: null } },
+        orderBy: { completed_at: "desc" },
+      });
+
+      if (!lastSession) {
+        recovery[muscleGroup] = 100;
+        continue;
+      }
+
+      const hoursElapsed = (Date.now() - new Date(lastSession.completed_at!).getTime()) / 3_600_000;
+      const volumeFactor = Math.min(Number(lastSession.total_volume_kg || 0) / 5000, 1.5);
+      const score = Math.max(0, 100 - (hoursElapsed / RECOVERY_HOURS[muscleGroup]) * 100 * (volumeFactor || 1));
+      recovery[muscleGroup] = Math.round(score);
+    }
+
+    const workoutSummary = completedSessions.map(s => {
+      const setsDesc = s.workout_sets.map(w => `${w.exercise.name}: ${w.set_number}×${w.reps}×${w.weight_kg}kg`).join(", ");
+      return `- Date: ${s.completed_at?.toLocaleDateString()}, Muscle: ${s.muscle_group}, Volume: ${s.total_volume_kg}kg, Sets: [${setsDesc}]`;
+    }).join("\n");
+
+    const metricSummary = metrics.map(m => {
+      return `- Date: ${m.recorded_at.toLocaleDateString()}, Weight: ${m.weight_kg}kg, Body Fat: ${m.body_fat_pct}%`;
+    }).join("\n");
+
+    const systemPrompt = `You are PulsePilot, the Adaptive Multi-Agent Fitness Coach. You act as a sports scientist, motivator, and workout planner.
+    
+    User Profile:
+    - Name: ${auth.user.name ?? "Athlete"}
+    - Primary Fitness Goal: ${auth.user.fitness_goal ?? "Hypertrophy"}
+    - Experience Level: ${auth.user.experience_level ?? "Intermediate"}
+    - Current Level: ${auth.user.level} (XP: ${auth.user.xp})
+    - Current Streak: ${auth.user.streak} days
+    - Active Subscription Tier: ${auth.user.subscription_tier}
+
+    Current Muscle Group Recovery status (0% = completely fatigued/sore, 100% = fully recovered):
+    ${Object.entries(recovery).map(([m, s]) => `- ${m.toUpperCase()}: ${s}%`).join("\n")}
+
+    Recent Workout Logs (last 10 completed sessions):
+    ${workoutSummary || "No workout sessions completed yet."}
+
+    Recent Body Metrics Logs:
+    ${metricSummary || "No metrics recorded yet."}
+
+    Guidelines:
+    1. Be concise, highly professional, encouraging, and science-focused.
+    2. Reference the user's recovery percentages and goals when planning/giving advice.
+    3. Suggest progressive overload, adjustments for stress/fatigue, and suggest specific exercises from chest, back, shoulders, legs, biceps, triceps, core.
+    4. Keep answers short (2-3 paragraphs maximum) so they fit neatly in a chat drawer.`;
+
+    const reply = await generateText(systemPrompt, message);
+    return res.json({ reply });
+  } catch (e) {
+    console.error("Chat error:", e);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
