@@ -22,6 +22,7 @@ Before starting the servers, you need to configure the backend to talk to your P
 2. Open the newly created `backend/.env` file in your editor.
 
 3. Update the `DATABASE_URL` and `REDIS_URL` placeholders with your actual connection strings (for example, from your Supabase/Neon PostgreSQL instance and your Redis instance).
+4. Set `GROQ_API_KEY` with your Groq key to enable the PulsePilot chatbot. Without it, the chat endpoint falls back to a placeholder response.
 
 ---
 
