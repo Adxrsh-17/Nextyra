@@ -449,6 +449,138 @@ app.get("/api/agents/recovery", async (req, res) => {
   }
 });
 
+// Planner endpoint - generate a weekly plan for the authenticated user
+app.post("/api/agents/planner", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { generateWeeklyPlan } = await import("./lib/agents");
+    const result = await generateWeeklyPlan(prisma, auth.user);
+    return res.json(result);
+  } catch (e) {
+    console.error("Planner error:", e);
+    return res.status(500).json({ error: "Planner failed" });
+  }
+});
+
+// Orchestrator endpoint - run planner + analysis and synthesize outputs
+app.post("/api/agents/orchestrator", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { orchestrate } = await import("./lib/agents");
+    const context = req.body?.context ?? {};
+    const result = await orchestrate(prisma, auth.user, context);
+    return res.json(result);
+  } catch (e) {
+    console.error("Orchestrator error:", e);
+    return res.status(500).json({ error: "Orchestrator failed" });
+  }
+});
+
+// Performance analysis endpoint - detect plateaus/flags
+app.get("/api/agents/performance", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { analyzePerformance } = await import("./lib/agents");
+    const report = await analyzePerformance(prisma, auth.user);
+    return res.json(report);
+  } catch (e) {
+    console.error("Performance analysis error:", e);
+    return res.status(500).json({ error: "Performance analysis failed" });
+  }
+});
+
+// Motivation endpoint - produce motivational messages / streak alerts
+app.get("/api/agents/motivation", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { generateMotivation } = await import("./lib/agents");
+    const result = await generateMotivation(prisma, auth.user);
+    return res.json(result);
+  } catch (e) {
+    console.error("Motivation agent error:", e);
+    return res.status(500).json({ error: "Motivation agent failed" });
+  }
+});
+
+// Critic endpoint - review a provided plan and return approval/corrections
+app.post("/api/agents/critic", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const plan = req.body?.plan;
+    const { critiquePlan } = await import("./lib/agents");
+    const result = await critiquePlan(prisma, auth.user, plan);
+    return res.json(result);
+  } catch (e) {
+    console.error("Critic agent error:", e);
+    return res.status(500).json({ error: "Critic agent failed" });
+  }
+});
+
+// Adaptive planning endpoint - adapt the latest plan given skipped sessions or lifestyle
+app.post("/api/agents/adaptive", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const context = req.body?.context ?? {};
+    const { adaptivePlan } = await import("./lib/agents");
+    const result = await adaptivePlan(prisma, auth.user, context);
+    return res.json(result);
+  } catch (e) {
+    console.error("Adaptive agent error:", e);
+    return res.status(500).json({ error: "Adaptive agent failed" });
+  }
+});
+
+// Long-term memory utilities
+app.post('/api/agents/embeddings', async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { sessionId, vector } = req.body;
+    if (!sessionId || !vector) return res.status(400).json({ error: 'sessionId and vector required' });
+    const { persistSessionEmbedding } = await import('./lib/agents');
+    const row = await persistSessionEmbedding(prisma, sessionId, auth.user.id, vector);
+    return res.json(row);
+  } catch (e) {
+    console.error('Embedding persist error:', e);
+    return res.status(500).json({ error: 'Failed to persist embedding' });
+  }
+});
+
+app.post('/api/agents/patterns/compute', async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { computeUserPatterns } = await import('./lib/agents');
+    const row = await computeUserPatterns(prisma, auth.user);
+    return res.json(row);
+  } catch (e) {
+    console.error('Compute patterns error:', e);
+    return res.status(500).json({ error: 'Failed to compute patterns' });
+  }
+});
+
 app.get("/api/dashboard", async (req, res) => {
   const token = req.query.token as string | undefined;
   const auth = await requireUser(token);

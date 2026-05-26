@@ -18,7 +18,7 @@ This is a mono-repo setup containing:
    ```
 
 2. Setup Backend Environment:
-   Copy `backend/.env.example` to `backend/.env` and update credentials with your actual database and Redis URLs.
+   Copy `backend/.env.example` to `backend/.env` and update credentials with your actual database, Redis, and Groq AI key values.
    ```bash
    cd backend
    npx prisma migrate dev
