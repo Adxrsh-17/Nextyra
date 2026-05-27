@@ -21,6 +21,7 @@ model User {
   xp                Int                @default(0)
   level             Int                @default(1)
   streak            Int                @default(0)
+  streak_freezes    Int                @default(0)
   last_active_date  DateTime?          @db.Date
   created_at        DateTime           @default(now()) @db.Timestamptz
   subscription_tier      String             @default("free")

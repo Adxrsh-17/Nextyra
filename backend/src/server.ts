@@ -107,6 +107,52 @@ app.post("/api/auth/signup", async (req, res) => {
   }
 });
 
+app.get("/api/notifications/streak-risk", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { getStreakRiskNotification } = await import("./lib/gamification");
+    const notification = await getStreakRiskNotification(prisma, auth.user.id);
+    return res.json(notification);
+  } catch (e) {
+    console.error("Streak notification error:", e);
+    return res.status(500).json({ error: "Failed to compute streak risk" });
+  }
+});
+
+app.post("/api/cron/gamification", async (req, res) => {
+  const token = req.body?.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { getOrCreateDailyMissions, getStreakRiskNotification, buildMonthlyChallenge } = await import("./lib/gamification");
+    const missions = await getOrCreateDailyMissions(prisma, auth.user.id);
+    const streakNotification = await getStreakRiskNotification(prisma, auth.user.id);
+    const monthlyChallenge = await buildMonthlyChallenge(prisma, auth.user.id);
+    return res.json({ missions, streakNotification, monthlyChallenge });
+  } catch (e) {
+    console.error("Gamification cron error:", e);
+    return res.status(500).json({ error: "Failed to run gamification cron" });
+  }
+});
+
+app.post("/api/streak-freezes/use", async (req, res) => {
+  const { token } = req.body as { token?: string };
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { useStreakFreeze } = await import("./lib/gamification");
+    const result = await useStreakFreeze(prisma, auth.user.id);
+    return res.json(result);
+  } catch (e) {
+    console.error("Use streak freeze error:", e);
+    return res.status(500).json({ error: "Failed to use streak freeze" });
+  }
+});
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || !password) {
@@ -299,76 +345,16 @@ app.patch("/api/sessions/:id/complete", async (req, res) => {
   if (!auth.user) return res.status(401).json(auth.error);
 
   try {
-    const session = await prisma.workoutSession.findFirst({
-      where: { id: req.params.id, user_id: auth.user.id },
-      include: { workout_sets: true },
+    const { awardSessionXp } = await import("./lib/gamification");
+    const result = await awardSessionXp(prisma, auth.user.id, req.params.id);
+    const updatedSession = await prisma.workoutSession.findUnique({ where: { id: req.params.id } });
+
+    const { computeUserPatterns } = await import("./lib/gamification");
+    computeUserPatterns(prisma, auth.user).catch((err) => {
+      console.error("Async user pattern computation failed:", err);
     });
 
-    if (!session) return res.status(404).json({ error: "Session not found" });
-
-    const totalVolumeKg = session.workout_sets.reduce(
-      (acc, set) => acc + Number(set.weight_kg || 0) * Number(set.reps || 0),
-      0
-    );
-    const xpEarned = session.workout_sets.length * 10 + 100;
-
-    const updatedSession = await prisma.workoutSession.update({
-      where: { id: req.params.id },
-      data: {
-        completed_at: new Date(),
-        total_volume_kg: totalVolumeKg,
-        xp_earned: xpEarned,
-      },
-    });
-
-    const newXp = auth.user.xp + xpEarned;
-    const newLevel = Math.floor(newXp / 500) + 1;
-
-    await prisma.xpTransaction.create({
-      data: {
-        user_id: auth.user.id,
-        amount: xpEarned,
-        reason: `Completed ${session.muscle_group} session`,
-      },
-    });
-
-    let newStreak = auth.user.streak;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (auth.user.last_active_date) {
-      const lastActive = new Date(auth.user.last_active_date);
-      lastActive.setHours(0, 0, 0, 0);
-      const diffTime = Math.abs(today.getTime() - lastActive.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-      if (diffDays === 1) {
-        newStreak += 1;
-      } else if (diffDays > 1) {
-        newStreak = 1;
-      }
-    } else {
-      newStreak = 1;
-    }
-
-    await prisma.user.update({
-      where: { id: auth.user.id },
-      data: {
-        xp: newXp,
-        level: newLevel,
-        streak: newStreak,
-        last_active_date: new Date(),
-      },
-    });
-
-    // Asynchronously update user patterns in background
-    import("./lib/agents").then(({ computeUserPatterns }) => {
-      computeUserPatterns(prisma, auth.user).catch((err) => {
-        console.error("Async user pattern computation failed:", err);
-      });
-    });
-
-    return res.json({ session: updatedSession, xpEarned, totalVolumeKg, message: "Session completed!" });
+    return res.json({ session: updatedSession, ...result, message: "Session completed!" });
   } catch (e) {
     console.error("Complete session error:", e);
     return res.status(500).json({ error: "Internal server error" });
@@ -608,6 +594,7 @@ app.get("/api/dashboard", async (req, res) => {
   if (!auth.user) return res.status(401).json(auth.error);
 
   try {
+    const { getGamificationSummary } = await import("./lib/gamification");
     const completedSessions = await prisma.workoutSession.findMany({
       where: {
         user_id: auth.user.id,
@@ -625,6 +612,7 @@ app.get("/api/dashboard", async (req, res) => {
     const thisWeekVolume = completedSessions
       .filter((session) => Date.now() - new Date(session.completed_at!).getTime() <= 7 * 24 * 60 * 60 * 1000)
       .reduce((acc, session) => acc + Number(session.total_volume_kg || 0), 0);
+    const gamification = await getGamificationSummary(prisma, auth.user.id);
 
     const recentSessions = completedSessions.slice(0, 5).map((session) => ({
       id: session.id,
@@ -642,6 +630,17 @@ app.get("/api/dashboard", async (req, res) => {
       totalVolumeKg: totalVolume,
       weeklyVolumeKg: thisWeekVolume,
       recentSessions,
+      badges: gamification.badges,
+      missions: gamification.missions,
+      weeklyChallenge: gamification.weeklyChallenge,
+      levelProgress: {
+        level: gamification.level,
+        progress: gamification.progress,
+        currentMin: gamification.currentMin,
+        nextMin: gamification.nextMin,
+      },
+      streak: gamification.streak,
+      streakFreezeAvailable: gamification.streakFreezeAvailable,
     });
   } catch (e) {
     console.error("Dashboard error:", e);
@@ -664,6 +663,7 @@ app.post("/api/metrics", async (req, res) => {
   if (!auth.user) return res.status(401).json(auth.error);
 
   try {
+    const { awardMetricXp } = await import("./lib/gamification");
     const metric = await prisma.bodyMetric.create({
       data: {
         user_id: auth.user.id,
@@ -684,10 +684,41 @@ app.post("/api/metrics", async (req, res) => {
       });
     }
 
-    return res.status(201).json({ metric });
+    const reward = await awardMetricXp(prisma, auth.user.id);
+    return res.status(201).json({ metric, reward });
   } catch (e) {
     console.error("Save metrics error:", e);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/missions/today", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { getOrCreateDailyMissions } = await import("./lib/gamification");
+    const missions = await getOrCreateDailyMissions(prisma, auth.user.id);
+    return res.json({ missions });
+  } catch (e) {
+    console.error("Missions fetch error:", e);
+    return res.status(500).json({ error: "Failed to load missions" });
+  }
+});
+
+app.patch("/api/missions/:id/complete", async (req, res) => {
+  const { token } = req.body as { token?: string };
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { completeMission } = await import("./lib/gamification");
+    const result = await completeMission(prisma, auth.user.id, req.params.id);
+    return res.json(result);
+  } catch (e) {
+    console.error("Mission completion error:", e);
+    return res.status(500).json({ error: "Failed to complete mission" });
   }
 });
 
