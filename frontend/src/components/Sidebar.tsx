@@ -15,6 +15,7 @@ function formatTier(tier?: string | null) {
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", hint: "Daily motivation and recovery" },
+  { href: "/coach", label: "AI Coach Cockpit", hint: "Orchestrate agent splits & recovery" },
   { href: "/workout/new", label: "Log Workout", hint: "Track real sets and finish strong" },
   { href: "/history", label: "Training History", hint: "Sessions, volume, and XP" },
   { href: "/stats", label: "Stats & Analytics", hint: "1RM and muscle load progression" },

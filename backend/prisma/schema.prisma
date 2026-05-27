@@ -36,6 +36,7 @@ model User {
   daily_missions    DailyMission[]
   ai_workout_plans  AiWorkoutPlan[]
   performance_flags PerformanceFlag[]
+  user_patterns     UserPattern[]
 
   @@map("users")
 }
@@ -207,4 +208,27 @@ model PerformanceFlag {
   exercise          Exercise           @relation(fields: [exercise_id], references: [id])
 
   @@map("performance_flags")
+}
+
+model SessionEmbedding {
+  id           String   @id @default(uuid()) @db.Uuid
+  session_id   String   @db.Uuid
+  user_id      String   @db.Uuid
+  vector       Json
+  created_at   DateTime @default(now()) @db.Timestamptz
+
+  @@map("session_embeddings")
+}
+
+model UserPattern {
+  id                String   @id @default(uuid()) @db.Uuid
+  user_id           String   @unique @db.Uuid
+  most_skipped_day   String?
+  avg_session_min    Int?
+  best_time_of_day   String?
+  computed_at        DateTime @default(now()) @db.Timestamptz
+
+  user              User     @relation(fields: [user_id], references: [id])
+
+  @@map("user_patterns")
 }
