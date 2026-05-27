@@ -11,6 +11,42 @@ type DashboardResponse = {
   level: number;
   totalVolumeKg: number;
   weeklyVolumeKg: number;
+  streak?: number;
+  streakFreezes?: number;
+  streakFreezeAvailable?: boolean;
+  levelProgress?: {
+    level: number;
+    progress: number;
+    currentMin: number;
+    nextMin: number | null;
+  };
+  badges?: Array<{
+    id: string;
+    name: string;
+    description?: string | null;
+    icon?: string | null;
+    earnedAt: string;
+  }>;
+  missions?: Array<{
+    id: string;
+    description?: string | null;
+    xp_reward?: number | null;
+    is_completed: boolean;
+    mission_date: string;
+  }>;
+  weeklyChallenge?: {
+    title: string;
+    description: string;
+    targetVolumeKg: number;
+    currentVolumeKg: number;
+  };
+  monthlyChallenge?: {
+    title: string;
+    description: string;
+    targetSessions: number;
+    currentSessions: number;
+    shareText?: string;
+  };
   recentSessions: Array<{
     id: string;
     muscle: string;
@@ -117,6 +153,7 @@ export default function DashboardPage() {
   const [recovery, setRecovery] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [submittingPlan, setSubmittingPlan] = useState<string | null>(null);
+  const [completingMissionId, setCompletingMissionId] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState("");
 
   async function handleSubscribe(planId: string) {
@@ -144,6 +181,24 @@ export default function DashboardPage() {
       console.error("Payment redirect failed:", err);
       setPaymentError(err.message || "Failed to initialize payment checkout. Please try again.");
       setSubmittingPlan(null);
+    }
+  }
+
+  async function completeMission(missionId: string) {
+    const token = getSessionToken();
+    if (!token) return;
+
+    setCompletingMissionId(missionId);
+    try {
+      await apiFetch(`/api/missions/${missionId}/complete`, {
+        method: "PATCH",
+        body: JSON.stringify({ token }),
+      });
+      window.location.reload();
+    } catch (err) {
+      console.error("Mission completion failed:", err);
+    } finally {
+      setCompletingMissionId(null);
     }
   }
 
@@ -175,9 +230,8 @@ export default function DashboardPage() {
 
   const xp = dashboard?.totalXP ?? 0;
   const level = dashboard?.level ?? 1;
-  const currentLevelXp = (level - 1) * 500;
-  const nextLevelXp = level * 500;
-  const progress = nextLevelXp === currentLevelXp ? 0 : ((xp - currentLevelXp) / (nextLevelXp - currentLevelXp)) * 100;
+  const progress = dashboard?.levelProgress?.progress ?? 0;
+  const nextLevelXp = dashboard?.levelProgress?.nextMin ?? null;
   const weeklyVolume = dashboard?.weeklyVolumeKg ?? 0;
 
   return (
@@ -208,6 +262,8 @@ export default function DashboardPage() {
                 <strong>{bestRecovery.muscle}</strong> is most recovered
               </span>
               <span className="pill">{weeklyVolume.toLocaleString()} kg logged this week</span>
+              {typeof dashboard?.streakFreezes === "number" ? <span className="pill">{dashboard.streakFreezes} streak freeze(s)</span> : null}
+              {dashboard?.streakFreezeAvailable ? <span className="pill">Streak freeze unlocked</span> : null}
             </div>
           </div>
 
@@ -274,8 +330,8 @@ export default function DashboardPage() {
         </div>
         <div className="panel kpi-card">
           <div className="kpi-label">Level and XP</div>
-          <div className="kpi-value">{level}</div>
-          <div className="helper-text">{xp.toLocaleString()} XP accumulated</div>
+          <div className="kpi-value">Level {level}</div>
+          <div className="helper-text">{xp.toLocaleString()} XP accumulated{nextLevelXp ? ` • next target ${nextLevelXp.toLocaleString()} XP` : ""}</div>
           <div className="progress-track">
             <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
           </div>
@@ -289,6 +345,101 @@ export default function DashboardPage() {
           <div className="kpi-label">Total volume</div>
           <div className="kpi-value">{((dashboard?.totalVolumeKg ?? 0) / 1000).toFixed(1)}K</div>
           <div className="helper-text">All tracked volume across completed sessions.</div>
+        </div>
+      </section>
+
+      <section className="content-grid">
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="section-title">Daily missions</div>
+              <div className="section-heading">Three targeted wins for today</div>
+            </div>
+            <div className="panel-note">Each mission is worth XP and resets daily.</div>
+          </div>
+          <div className="sessions-grid">
+            {(dashboard?.missions ?? []).map((mission) => (
+              <article className="session-card" key={mission.id}>
+                <div className="session-top">
+                  <div className="session-title">{mission.is_completed ? "Completed" : "Active"}</div>
+                  <div className="pill">+{mission.xp_reward ?? 75} XP</div>
+                </div>
+                <p className="helper-text" style={{ marginTop: "0.5rem" }}>{mission.description}</p>
+                {!mission.is_completed ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => completeMission(mission.id)}
+                    disabled={completingMissionId === mission.id}
+                    style={{ marginTop: "1rem", width: "100%", justifyContent: "center" }}
+                  >
+                    {completingMissionId === mission.id ? "Completing..." : "Mark complete"}
+                  </button>
+                ) : null}
+              </article>
+            ))}
+            {!loading && !(dashboard?.missions?.length ?? 0) ? <div className="panel-empty">No missions generated yet.</div> : null}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="section-title">Badges</div>
+              <div className="section-heading">Earned achievements</div>
+            </div>
+          </div>
+          <div className="plan-feature-list" style={{ marginBottom: "1rem" }}>
+            {(dashboard?.badges ?? []).length ? dashboard?.badges?.map((badge) => (
+              <span key={badge.id} className="pill">{badge.icon ?? "🏅"} {badge.name}</span>
+            )) : <span className="pill">No badges yet</span>}
+          </div>
+          <div className="helper-text">
+            Unlocks are automatic once you hit the underlying condition, and the system keeps the badge history for your profile.
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="section-title">Challenge board</div>
+            <div className="section-heading">Weekly fitness challenge</div>
+          </div>
+        </div>
+        <div className="feature-story-card">
+          <div className="feature-kicker">{dashboard?.weeklyChallenge?.title ?? "Weekly challenge"}</div>
+          <p className="feature-story-copy">{dashboard?.weeklyChallenge?.description ?? "Log more volume this week to generate a challenge."}</p>
+          {dashboard?.weeklyChallenge ? (
+            <div className="progress-track" style={{ marginTop: "1rem" }}>
+              <div
+                className="progress-fill"
+                style={{ width: `${Math.max(0, Math.min(100, (dashboard.weeklyChallenge.currentVolumeKg / Math.max(1, dashboard.weeklyChallenge.targetVolumeKg)) * 100))}%` }}
+              />
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="section-title">Monthly challenge</div>
+            <div className="section-heading">Long-range progression goal</div>
+          </div>
+        </div>
+        <div className="feature-story-card">
+          <div className="feature-kicker">{dashboard?.monthlyChallenge?.title ?? "Monthly challenge"}</div>
+          <p className="feature-story-copy">{dashboard?.monthlyChallenge?.description ?? "Monthly challenges are generated from your 30-day trend."}</p>
+          {dashboard?.monthlyChallenge ? (
+            <div className="progress-track" style={{ marginTop: "1rem" }}>
+              <div
+                className="progress-fill"
+                style={{ width: `${Math.max(0, Math.min(100, (dashboard.monthlyChallenge.currentSessions / Math.max(1, dashboard.monthlyChallenge.targetSessions)) * 100))}%` }}
+              />
+            </div>
+          ) : null}
+          {dashboard?.monthlyChallenge?.shareText ? <div className="helper-text" style={{ marginTop: "0.75rem" }}>{dashboard.monthlyChallenge.shareText}</div> : null}
         </div>
       </section>
 
