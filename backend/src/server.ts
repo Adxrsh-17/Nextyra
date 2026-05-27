@@ -361,6 +361,13 @@ app.patch("/api/sessions/:id/complete", async (req, res) => {
       },
     });
 
+    // Asynchronously update user patterns in background
+    import("./lib/agents").then(({ computeUserPatterns }) => {
+      computeUserPatterns(prisma, auth.user).catch((err) => {
+        console.error("Async user pattern computation failed:", err);
+      });
+    });
+
     return res.json({ session: updatedSession, xpEarned, totalVolumeKg, message: "Session completed!" });
   } catch (e) {
     console.error("Complete session error:", e);
@@ -578,6 +585,20 @@ app.post('/api/agents/patterns/compute', async (req, res) => {
   } catch (e) {
     console.error('Compute patterns error:', e);
     return res.status(500).json({ error: 'Failed to compute patterns' });
+  }
+});
+
+app.get('/api/agents/patterns', async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const pattern = await prisma.userPattern.findUnique({ where: { user_id: auth.user.id } });
+    return res.json(pattern ?? { message: "No patterns calculated yet." });
+  } catch (e) {
+    console.error('Fetch patterns error:', e);
+    return res.status(500).json({ error: 'Failed to retrieve patterns' });
   }
 });
 
