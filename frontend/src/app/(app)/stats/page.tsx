@@ -20,6 +20,47 @@ type VolumeResponse = {
   volumeByMuscle: Record<string, number>;
 };
 
+type PredictiveResponse = {
+  generatedAt: string;
+  strengthForecasts: Array<{
+    exerciseName: string;
+    current1Rm: number;
+    projected1Rm: number;
+    weeklyGain: number;
+    sampleCount: number;
+    targetDate: string;
+    trend: string;
+  }>;
+  consistency: {
+    daysAnalyzed: number;
+    sessionsLogged: number;
+    weeklyAverage: number;
+    mostSkippedDay: string;
+    streakContinuationProbability: number;
+    insight: string;
+  };
+  plateauInsights: Array<{
+    exerciseName: string;
+    daysSinceLastPR: number;
+    suggestion: string;
+    current1Rm: number;
+  }>;
+  bodyProjection: {
+    latestWeightKg: number | null;
+    latestBodyFatPct: number | null;
+    projectedWeightKg: number | null;
+    projectedBodyFatPct: number | null;
+    projectedDate: string;
+    divergingFromGoal: boolean;
+  } | null;
+  bodyRecommendation: string;
+  summaryCards: Array<{
+    label: string;
+    value: string;
+    note: string;
+  }>;
+};
+
 function getSessionToken() {
   return typeof window === "undefined" ? "" : window.localStorage.getItem("nextyra-session-token") ?? "";
 }
@@ -32,6 +73,7 @@ function formatDate(dateStr: string) {
 export default function StatsPage() {
   const [exerciseHistory, setExerciseHistory] = useState<Record<string, ExerciseHistoryItem[]>>({});
   const [volumeByMuscle, setVolumeByMuscle] = useState<Record<string, number>>({});
+  const [predictive, setPredictive] = useState<PredictiveResponse | null>(null);
   const [selectedExercise, setSelectedExercise] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -42,10 +84,12 @@ export default function StatsPage() {
     Promise.all([
       apiFetch<StatsResponse>(`/api/stats/exercises?token=${encodeURIComponent(token)}`),
       apiFetch<VolumeResponse>(`/api/stats/volume?token=${encodeURIComponent(token)}`),
+      apiFetch<PredictiveResponse>(`/api/agents/predictive?token=${encodeURIComponent(token)}`),
     ])
-      .then(([statsData, volumeData]) => {
+      .then(([statsData, volumeData, predictiveData]) => {
         setExerciseHistory(statsData.exerciseHistory);
         setVolumeByMuscle(volumeData.volumeByMuscle);
+        setPredictive(predictiveData);
 
         const exercises = Object.keys(statsData.exerciseHistory);
         if (exercises.length > 0) {
@@ -98,6 +142,11 @@ export default function StatsPage() {
     return Math.max(...values, 1000);
   }, [volumeByMuscle]);
 
+  const selectedForecast = useMemo(() => {
+    if (!predictive?.strengthForecasts?.length || !selectedExercise) return null;
+    return predictive.strengthForecasts.find((forecast) => forecast.exerciseName === selectedExercise) ?? predictive.strengthForecasts[0] ?? null;
+  }, [predictive, selectedExercise]);
+
   if (loading) {
     return (
       <div className="auth-loading">
@@ -132,6 +181,45 @@ export default function StatsPage() {
         </div>
       </section>
 
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="section-title">Predictive intelligence</div>
+            <div className="section-heading">Forecasts from your latest training and body data</div>
+          </div>
+          <div className="pill">Phase 4 active</div>
+        </div>
+
+        <div className="summary-grid" style={{ marginBottom: "1rem" }}>
+          {predictive?.summaryCards?.map((card) => (
+            <div key={card.label} className="summary-card">
+              <div className="metric-label">{card.label}</div>
+              <div className="metric-value" style={{ fontSize: "1.5rem" }}>{card.value}</div>
+              <div className="helper-text" style={{ marginTop: "0.4rem" }}>{card.note}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="feature-spotlight-grid">
+          <div className="feature-story-card">
+            <div className="feature-kicker">Strength forecast</div>
+            <p className="feature-story-copy">
+              {selectedForecast
+                ? `${selectedForecast.exerciseName}: ${selectedForecast.current1Rm} kg today, ${selectedForecast.projected1Rm} kg projected by ${new Date(selectedForecast.targetDate).toLocaleDateString()}.`
+                : "Train more sets to unlock lift-specific forecasts."}
+            </p>
+          </div>
+          <div className="feature-story-card">
+            <div className="feature-kicker">Consistency trend</div>
+            <p className="feature-story-copy">{predictive?.consistency?.insight ?? "Consistency insights appear once the system has enough workout history."}</p>
+          </div>
+          <div className="feature-story-card">
+            <div className="feature-kicker">Body composition</div>
+            <p className="feature-story-copy">{predictive?.bodyRecommendation ?? "Add at least two body metric check-ins to generate projections."}</p>
+          </div>
+        </div>
+      </section>
+
       {!hasHistory ? (
         <section className="panel" style={{ textAlign: "center", paddingBlock: "3rem" }}>
           <div className="panel-empty" style={{ maxWidth: "420px", margin: "0 auto" }}>
@@ -146,6 +234,11 @@ export default function StatsPage() {
                 <div className="section-title">Overload progression</div>
                 <div className="section-heading">Estimated 1RM trend</div>
               </div>
+              {selectedForecast ? (
+                <div className="pill" style={{ background: "var(--bg-soft)", color: "var(--accent)" }}>
+                  Forecast {selectedForecast.trend === "up" ? "+" : ""}{selectedForecast.weeklyGain} kg / week
+                </div>
+              ) : null}
               <div>
                 <select
                   value={selectedExercise}
@@ -270,6 +363,13 @@ export default function StatsPage() {
               <div className="helper-text" style={{ lineHeight: 1.6 }}>
                 💡 <strong>1RM (One-Rep Max)</strong> calculation uses the Epley formula: <code>weight × (1 + reps/30)</code>. Maintaining a steady upward line signals progressive overloading.
               </div>
+              {selectedForecast ? (
+                <div className="summary-card" style={{ marginTop: "1rem", border: "1px solid var(--border-strong)" }}>
+                  <div className="metric-label">Projected next milestone</div>
+                  <div className="metric-value" style={{ fontSize: "1.7rem" }}>{selectedForecast.projected1Rm} kg</div>
+                  <div className="helper-text">Based on {selectedForecast.sampleCount} logged top sets and a simple regression trend.</div>
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -303,6 +403,68 @@ export default function StatsPage() {
                 );
               })}
             </div>
+          </section>
+
+          <section className="panel" style={{ display: "flex", flexDirection: "column" }}>
+            <div className="panel-header">
+              <div>
+                <div className="section-title">Plateau detection</div>
+                <div className="section-heading">Breakthrough suggestions</div>
+              </div>
+            </div>
+
+            {predictive?.plateauInsights?.length ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {predictive.plateauInsights.map((flag) => (
+                  <div key={flag.exerciseName} className="summary-card">
+                    <div className="timeline-top">
+                      <div>
+                        <div className="timeline-title">{flag.exerciseName}</div>
+                        <div className="timeline-date">No PR in {flag.daysSinceLastPR} days</div>
+                      </div>
+                      <div className="pill">{flag.current1Rm} kg 1RM</div>
+                    </div>
+                    <p className="helper-text" style={{ lineHeight: 1.55, marginTop: "0.5rem" }}>{flag.suggestion}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="panel-empty">No plateaus detected yet. Keep logging PR attempts and the system will flag stalls after 3 weeks.</div>
+            )}
+          </section>
+
+          <section className="panel" style={{ display: "flex", flexDirection: "column" }}>
+            <div className="panel-header">
+              <div>
+                <div className="section-title">Body projections</div>
+                <div className="section-heading">Weight and body-fat trend forecast</div>
+              </div>
+            </div>
+
+            {predictive?.bodyProjection ? (
+              <div style={{ display: "grid", gap: "0.85rem" }}>
+                <div className="summary-card">
+                  <div className="metric-label">Projected by {new Date(predictive.bodyProjection.projectedDate).toLocaleDateString()}</div>
+                  <div className="metric-value" style={{ fontSize: "1.8rem" }}>
+                    {predictive.bodyProjection.projectedWeightKg !== null ? `${predictive.bodyProjection.projectedWeightKg} kg` : "Weight N/A"}
+                  </div>
+                  <div className="helper-text">
+                    {predictive.bodyProjection.latestWeightKg !== null ? `Latest: ${predictive.bodyProjection.latestWeightKg} kg` : "Weight trend unavailable"}
+                  </div>
+                </div>
+                <div className="summary-card">
+                  <div className="metric-label">Body fat projection</div>
+                  <div className="metric-value" style={{ fontSize: "1.8rem" }}>
+                    {predictive.bodyProjection.projectedBodyFatPct !== null ? `${predictive.bodyProjection.projectedBodyFatPct}%` : "N/A"}
+                  </div>
+                  <div className="helper-text">
+                    {predictive.bodyProjection.latestBodyFatPct !== null ? `Latest: ${predictive.bodyProjection.latestBodyFatPct}%` : "Body-fat trend unavailable"}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="panel-empty">Add at least two body metric check-ins to enable body composition forecasting.</div>
+            )}
           </section>
         </div>
       )}

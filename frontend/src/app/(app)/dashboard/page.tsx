@@ -61,6 +61,47 @@ type RecoveryResponse = {
   recovery: Record<string, number>;
 };
 
+type PredictiveResponse = {
+  generatedAt: string;
+  strengthForecasts: Array<{
+    exerciseName: string;
+    current1Rm: number;
+    projected1Rm: number;
+    weeklyGain: number;
+    sampleCount: number;
+    targetDate: string;
+    trend: string;
+  }>;
+  consistency: {
+    daysAnalyzed: number;
+    sessionsLogged: number;
+    weeklyAverage: number;
+    mostSkippedDay: string;
+    streakContinuationProbability: number;
+    insight: string;
+  };
+  plateauInsights: Array<{
+    exerciseName: string;
+    daysSinceLastPR: number;
+    suggestion: string;
+    current1Rm: number;
+  }>;
+  bodyProjection: {
+    latestWeightKg: number | null;
+    latestBodyFatPct: number | null;
+    projectedWeightKg: number | null;
+    projectedBodyFatPct: number | null;
+    projectedDate: string;
+    divergingFromGoal: boolean;
+  } | null;
+  bodyRecommendation: string;
+  summaryCards: Array<{
+    label: string;
+    value: string;
+    note: string;
+  }>;
+};
+
 const MEMBERSHIP_PLANS = [
   {
     id: "lift_start",
@@ -151,6 +192,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [recovery, setRecovery] = useState<Record<string, number>>({});
+  const [predictive, setPredictive] = useState<PredictiveResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [submittingPlan, setSubmittingPlan] = useState<string | null>(null);
   const [completingMissionId, setCompletingMissionId] = useState<string | null>(null);
@@ -209,10 +251,12 @@ export default function DashboardPage() {
     Promise.all([
       apiFetch<DashboardResponse>(`/api/dashboard?token=${encodeURIComponent(token)}`),
       apiFetch<RecoveryResponse>(`/api/agents/recovery?token=${encodeURIComponent(token)}`),
+      apiFetch<PredictiveResponse>(`/api/agents/predictive?token=${encodeURIComponent(token)}`),
     ])
-      .then(([dashboardResponse, recoveryResponse]) => {
+      .then(([dashboardResponse, recoveryResponse, predictiveResponse]) => {
         setDashboard(dashboardResponse);
         setRecovery(recoveryResponse.recovery);
+        setPredictive(predictiveResponse);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -283,6 +327,45 @@ export default function DashboardPage() {
               <div className="mini-stat-value is-warm">+{xp}</div>
               <div className="helper-text">Every completed set now feeds XP, history, and readiness.</div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="section-title">Predictive intelligence</div>
+            <div className="section-heading">Live forecast signals from your recent training data</div>
+          </div>
+          <div className="pill">Updated {predictive?.generatedAt ? new Date(predictive.generatedAt).toLocaleDateString() : "recently"}</div>
+        </div>
+
+        <div className="summary-grid" style={{ marginBottom: "1rem" }}>
+          {predictive?.summaryCards?.map((card) => (
+            <div key={card.label} className="summary-card">
+              <div className="metric-label">{card.label}</div>
+              <div className="metric-value" style={{ fontSize: "1.5rem" }}>{card.value}</div>
+              <div className="helper-text" style={{ marginTop: "0.4rem" }}>{card.note}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="feature-spotlight-grid">
+          <div className="feature-story-card">
+            <div className="feature-kicker">Strength progression</div>
+            <p className="feature-story-copy">
+              {predictive?.strengthForecasts?.[0]
+                ? `${predictive.strengthForecasts[0].exerciseName}: ${predictive.strengthForecasts[0].current1Rm} kg now, ${predictive.strengthForecasts[0].projected1Rm} kg projected by ${new Date(predictive.strengthForecasts[0].targetDate).toLocaleDateString()}.`
+                : "Log more sets to unlock lift-by-lift projection estimates."}
+            </p>
+          </div>
+          <div className="feature-story-card">
+            <div className="feature-kicker">Consistency trend</div>
+            <p className="feature-story-copy">{predictive?.consistency?.insight ?? "Your workout frequency pattern will appear here once enough history is available."}</p>
+          </div>
+          <div className="feature-story-card">
+            <div className="feature-kicker">Body projection</div>
+            <p className="feature-story-copy">{predictive?.bodyRecommendation ?? "Add body metrics to see projected weight and body-fat direction."}</p>
           </div>
         </div>
       </section>
