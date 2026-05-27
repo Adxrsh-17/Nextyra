@@ -349,8 +349,8 @@ app.patch("/api/sessions/:id/complete", async (req, res) => {
     const result = await awardSessionXp(prisma, auth.user.id, req.params.id);
     const updatedSession = await prisma.workoutSession.findUnique({ where: { id: req.params.id } });
 
-    const { computeUserPatterns } = await import("./lib/gamification");
-    computeUserPatterns(prisma, auth.user).catch((err) => {
+    const { computeUserPatterns } = await import("./lib/agents");
+    computeUserPatterns(prisma, auth.user).catch((err: any) => {
       console.error("Async user pattern computation failed:", err);
     });
 
@@ -491,6 +491,22 @@ app.get("/api/agents/performance", async (req, res) => {
   }
 });
 
+// Predictive intelligence endpoint - forecast strength, consistency, plateaus, and body trends
+app.get("/api/agents/predictive", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const { buildPredictiveSummary } = await import("./lib/predictive");
+    const result = await buildPredictiveSummary(prisma, auth.user);
+    return res.json(result);
+  } catch (e) {
+    console.error("Predictive analysis error:", e);
+    return res.status(500).json({ error: "Predictive analysis failed" });
+  }
+});
+
 // Motivation endpoint - produce motivational messages / streak alerts
 app.get("/api/agents/motivation", async (req, res) => {
   const token = req.query.token as string | undefined;
@@ -580,7 +596,7 @@ app.get('/api/agents/patterns', async (req, res) => {
   if (!auth.user) return res.status(401).json(auth.error);
 
   try {
-    const pattern = await prisma.userPattern.findUnique({ where: { user_id: auth.user.id } });
+    const pattern = await prisma.userPattern.findFirst({ where: { user_id: auth.user.id } });
     return res.json(pattern ?? { message: "No patterns calculated yet." });
   } catch (e) {
     console.error('Fetch patterns error:', e);
