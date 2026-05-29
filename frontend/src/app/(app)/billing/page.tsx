@@ -56,16 +56,7 @@ export default function BillingPage() {
     setPaymentError("");
 
     try {
-      const response = await apiFetch<{ url: string }>("/api/payments/create-checkout-session", {
-        method: "POST",
-        body: JSON.stringify({ token, plan: planId }),
-      });
-
-      if (response.url) {
-        window.location.href = response.url;
-      } else {
-        throw new Error("No checkout redirect URL was provided by the server.");
-      }
+      window.location.href = `/payment/checkout?plan=${planId}`;
     } catch (err: any) {
       console.error("Payment redirect failed:", err);
       setPaymentError(err.message || "Failed to initialize payment checkout. Please try again.");
