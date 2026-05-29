@@ -44,7 +44,8 @@ export default function ChatDrawer() {
     }
 
     const userMsg: Message = { role: "user", content: text };
-    setMessages((prev) => [...prev, userMsg]);
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInput("");
     setLoading(true);
     setError("");
@@ -52,7 +53,7 @@ export default function ChatDrawer() {
     try {
       const response = await apiFetch<{ reply: string }>("/api/chat", {
         method: "POST",
-        body: JSON.stringify({ token, message: text }),
+        body: JSON.stringify({ token, message: text, history: updatedMessages }),
       });
 
       setMessages((prev) => [...prev, { role: "assistant", content: response.reply }]);

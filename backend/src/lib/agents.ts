@@ -257,6 +257,85 @@ export async function orchestrate(prisma: any, user: any, context: any = {}) {
   return synthesis;
 }
 
+async function parseLifestyleNotes(notes: string): Promise<{ fatigue: number; stress: number; sleepHours: number | null }> {
+  const hasApiKey = !!(process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY);
+  if (!hasApiKey) {
+    // Fast heuristic parser fallback
+    const lower = notes.toLowerCase();
+    let fatigue = 3;
+    let stress = 3;
+    let sleepHours: number | null = null;
+    
+    if (lower.includes("sore") || lower.includes("exhausted") || lower.includes("tired") || lower.includes("fatigue") || lower.includes("dead")) {
+      fatigue = 5;
+    } else if (lower.includes("fresh") || lower.includes("energetic") || lower.includes("ready")) {
+      fatigue = 1;
+    }
+    
+    if (lower.includes("stress") || lower.includes("busy") || lower.includes("rough") || lower.includes("anxious") || lower.includes("hard")) {
+      stress = 5;
+    } else if (lower.includes("calm") || lower.includes("chill") || lower.includes("relaxed")) {
+      stress = 1;
+    }
+
+    const sleepMatch = lower.match(/(\d+)\s*(?:hour|hr|hrs)/);
+    if (sleepMatch) {
+      sleepHours = parseFloat(sleepMatch[1]);
+    }
+    
+    return { fatigue, stress, sleepHours };
+  }
+
+  const systemPrompt = `You are a fitness coaching assistant. Analyze the user's daily check-in notes to extract three metrics:
+1. Fatigue score (1 to 5, where 1 is fully fresh and 5 is extremely exhausted/fatigued).
+2. Stress score (1 to 5, where 1 is completely relaxed and 5 is extremely stressed/overworked).
+3. Sleep duration estimation in hours (null if not mentioned).
+
+Return ONLY a valid JSON object with keys "fatigue" (number), "stress" (number), and "sleepHours" (number or null). No conversational wrapper, no markdown block, just raw JSON.`;
+
+  try {
+    const reply = await generateText(systemPrompt, `User notes: "${notes}"`);
+    let cleanReply = reply.trim();
+    if (cleanReply.startsWith("```json")) {
+      cleanReply = cleanReply.substring(7);
+    }
+    if (cleanReply.endsWith("```")) {
+      cleanReply = cleanReply.substring(0, cleanReply.length - 3);
+    }
+    const parsed = JSON.parse(cleanReply.trim());
+    return {
+      fatigue: typeof parsed.fatigue === 'number' ? Math.max(1, Math.min(5, parsed.fatigue)) : 3,
+      stress: typeof parsed.stress === 'number' ? Math.max(1, Math.min(5, parsed.stress)) : 3,
+      sleepHours: typeof parsed.sleepHours === 'number' ? parsed.sleepHours : null,
+    };
+  } catch (e) {
+    console.error("Failed to parse lifestyle notes via LLM, falling back:", e);
+    const lower = notes.toLowerCase();
+    let fatigue = 3;
+    let stress = 3;
+    let sleepHours: number | null = null;
+    
+    if (lower.includes("sore") || lower.includes("exhausted") || lower.includes("tired") || lower.includes("fatigue") || lower.includes("dead")) {
+      fatigue = 5;
+    } else if (lower.includes("fresh") || lower.includes("energetic") || lower.includes("ready")) {
+      fatigue = 1;
+    }
+    
+    if (lower.includes("stress") || lower.includes("busy") || lower.includes("rough") || lower.includes("anxious") || lower.includes("hard")) {
+      stress = 5;
+    } else if (lower.includes("calm") || lower.includes("chill") || lower.includes("relaxed")) {
+      stress = 1;
+    }
+
+    const sleepMatch = lower.match(/(\d+)\s*(?:hour|hr|hrs)/);
+    if (sleepMatch) {
+      sleepHours = parseFloat(sleepMatch[1]);
+    }
+    
+    return { fatigue, stress, sleepHours };
+  }
+}
+
 // 2.7 Adaptive Planning Agent
 export async function adaptivePlan(prisma: any, user: any, context: any = {}) {
   const lastPlan = await prisma.aiWorkoutPlan.findFirst({ where: { user_id: user.id }, orderBy: { generated_at: 'desc' } });
@@ -265,34 +344,149 @@ export async function adaptivePlan(prisma: any, user: any, context: any = {}) {
   const plan: any[] = Array.isArray(lastPlan.plan_json) ? lastPlan.plan_json : lastPlan.plan_json as any[];
   const skipped = context.skippedSessions ?? [];
   const lifestyle = context.lifestyle ?? {};
+  const notes: string[] = [];
 
-  for (const s of skipped) {
-    const muscle = s.muscleGroup || s.muscle_group || null;
-    if (!muscle) continue;
+  const todayDayOfWeek = new Date().getDay(); // 0 = Sunday, 6 = Saturday
+  let todayPlanIdx = plan.findIndex(d => d.day === todayDayOfWeek);
+  if (todayPlanIdx === -1) todayPlanIdx = 0;
 
-    let target = plan.findIndex((d, i) => {
-      const prev = plan[i - 1];
-      const curMuscle = (d.muscleGroup || d.muscle_group || '').toLowerCase();
-      if (curMuscle === muscle.toLowerCase()) return false;
-      const prevMuscle = prev ? (prev.muscleGroup || prev.muscle_group || '').toLowerCase() : null;
-      if (prevMuscle === muscle.toLowerCase()) return false;
-      return true;
-    });
+  // Extract / parse notes
+  let extractedFatigue = lifestyle.energy !== undefined ? (6 - Number(lifestyle.energy)) : 3; // invert energy to fatigue
+  let extractedStress = Number(lifestyle.stress ?? 3);
+  let sleepHours: number | null = lifestyle.sleep !== undefined ? Number(lifestyle.sleep) : null;
 
-    if (target >= 0) {
-      plan[target].exercises = plan[target].exercises.concat([{ name: `(moved) ${muscle}`, sets: 2, reps: 8, weightKg: null }]);
+  if (lifestyle.notes) {
+    const parsed = await parseLifestyleNotes(lifestyle.notes);
+    extractedFatigue = parsed.fatigue;
+    extractedStress = parsed.stress;
+    if (parsed.sleepHours !== null) {
+      sleepHours = parsed.sleepHours;
     }
   }
 
-  // Stress-informed intensity scaling
-  if (lifestyle.energy !== undefined && lifestyle.energy <= 2) {
+  // Energy & Stress checks
+  const energy = 6 - extractedFatigue; // energy = 1 to 5
+  const stress = extractedStress;      // stress = 1 to 5
+
+  // Rule 1: Energy <= 2 AND Stress >= 4: Replace today's planned session with the lightest pending workout
+  if (energy <= 2 && stress >= 4) {
+    let lightestIdx = -1;
+    let minSets = Infinity;
+    for (let i = 0; i < plan.length; i++) {
+      if (i === todayPlanIdx) continue;
+      const day = plan[i];
+      const setSum = day.exercises?.reduce((acc: number, ex: any) => acc + (ex.sets || 0), 0) || 0;
+      if (setSum < minSets) {
+        minSets = setSum;
+        lightestIdx = i;
+      }
+    }
+    if (lightestIdx !== -1) {
+      const temp = plan[todayPlanIdx].exercises;
+      const tempMuscle = plan[todayPlanIdx].muscleGroup || plan[todayPlanIdx].muscle_group;
+      
+      plan[todayPlanIdx].exercises = plan[lightestIdx].exercises;
+      plan[todayPlanIdx].muscleGroup = plan[lightestIdx].muscleGroup || plan[lightestIdx].muscle_group;
+      plan[todayPlanIdx].muscle_group = plan[lightestIdx].muscleGroup || plan[lightestIdx].muscle_group;
+      
+      plan[lightestIdx].exercises = temp;
+      plan[lightestIdx].muscleGroup = tempMuscle;
+      plan[lightestIdx].muscle_group = tempMuscle;
+      
+      notes.push(`Substituted today's session with a lighter session (${plan[todayPlanIdx].muscleGroup}) due to low energy (${energy}) and high stress (${stress}).`);
+    }
+  }
+
+  // Rule 2: Sleep hours < 6 or poor sleep for 3 consecutive check-ins
+  const last3Checkins = await prisma.lifestyleCheckin.findMany({
+    where: { user_id: user.id },
+    orderBy: { checkin_date: 'desc' },
+    take: 3,
+  });
+  let lowSleepStreak = false;
+  if (last3Checkins.length === 3) {
+    lowSleepStreak = last3Checkins.every((c: any) => {
+      return (c.sleep_quality !== null && c.sleep_quality <= 2) || (sleepHours !== null && sleepHours < 6);
+    });
+  } else if (sleepHours !== null && sleepHours < 6) {
+    // fallback to today's sleep hours
+    lowSleepStreak = true;
+  }
+  
+  if (lowSleepStreak) {
     for (const day of plan) {
       if (!Array.isArray(day.exercises)) continue;
       for (const ex of day.exercises) {
-        if (ex.sets) ex.sets = Math.max(1, Math.floor(ex.sets * 0.7));
-        if (ex.reps) ex.reps = Math.max(4, Math.floor(ex.reps * 0.9));
+        if (ex.sets) ex.sets = Math.max(1, Math.round(ex.sets * 0.5));
       }
     }
+    notes.push("Applied a deload week (50% set reduction) because of poor or short sleep.");
+  }
+
+  // Rule 3: Energy = 5 + Streak >= 7 days: Suggest a bonus challenge session
+  if (energy === 5 && (user.streak || 0) >= 7) {
+    if (plan[todayPlanIdx] && Array.isArray(plan[todayPlanIdx].exercises)) {
+      plan[todayPlanIdx].exercises.push({
+        name: "🔥 Bonus Challenge: Top-Set AMRAP PR Attempt",
+        sets: 1,
+        reps: 10,
+        weightKg: null,
+      });
+      notes.push("High energy and active streak detected! Injected a bonus challenge PR top-set.");
+    }
+  }
+
+  // Rule 4: Missed 2+ sessions: Compress plan
+  const remainingDays = plan.filter(d => d.day >= todayDayOfWeek);
+  if (skipped.length >= 2 && remainingDays.length > 0) {
+    for (const s of skipped) {
+      const muscle = s.muscleGroup || s.muscle_group || null;
+      if (!muscle) continue;
+      
+      let targetDay = remainingDays.find(d => (d.muscleGroup || d.muscle_group || '').toLowerCase() !== muscle.toLowerCase());
+      if (!targetDay) targetDay = remainingDays[0];
+      
+      if (targetDay) {
+        targetDay.exercises = targetDay.exercises.concat([
+          { name: `(compressed) ${muscle} exercises`, sets: 2, reps: 10, weightKg: null }
+        ]);
+      }
+    }
+    notes.push(`Compressed missed workouts into remaining days to avoid skipping volume.`);
+  }
+
+  // Smart Rescheduling (1 skipped workout)
+  if (skipped.length === 1) {
+    const s = skipped[0];
+    const muscle = s.muscleGroup || s.muscle_group || null;
+    if (muscle) {
+      let targetIdx = -1;
+      for (let i = todayPlanIdx; i < plan.length; i++) {
+        const prevIdx = i - 1;
+        const nextIdx = i + 1;
+        const prevMuscle = prevIdx >= 0 ? (plan[prevIdx].muscleGroup || plan[prevIdx].muscle_group || '').toLowerCase() : '';
+        const nextMuscle = nextIdx < plan.length ? (plan[nextIdx].muscleGroup || plan[nextIdx].muscle_group || '').toLowerCase() : '';
+        const currentMuscle = (plan[i].muscleGroup || plan[i].muscle_group || '').toLowerCase();
+        
+        if (currentMuscle !== muscle.toLowerCase() && prevMuscle !== muscle.toLowerCase() && nextMuscle !== muscle.toLowerCase()) {
+          targetIdx = i;
+          break;
+        }
+      }
+      if (targetIdx === -1) {
+        targetIdx = todayPlanIdx;
+      }
+      const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][plan[targetIdx].day];
+      plan[targetIdx].exercises = plan[targetIdx].exercises.concat([
+        { name: `(rescheduled) ${muscle} set`, sets: 3, reps: 8, weightKg: null }
+      ]);
+      notes.push(`I've rescheduled your missed ${muscle} day to ${dayName} based on your week.`);
+    }
+  }
+
+  // Default fallback note if nothing changed
+  if (notes.length === 0) {
+    notes.push("Your splits remain balanced. Let's focus on progressive overload!");
   }
 
   const adapted = await prisma.aiWorkoutPlan.create({ data: { user_id: user.id, plan_json: plan, week_start: new Date() } });
@@ -300,7 +494,7 @@ export async function adaptivePlan(prisma: any, user: any, context: any = {}) {
   // Clear orchestration cache so UI reflects change
   delete cacheStore[`orchestration-${user.id}`];
 
-  return { adaptedPlan: plan, note: 'Adapted from previous plan', adaptedId: adapted.id };
+  return { adaptedPlan: plan, note: notes.join(" • "), adaptedId: adapted.id };
 }
 
 // 2.8 Long-Term Memory System

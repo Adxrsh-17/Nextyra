@@ -55,6 +55,7 @@ type DashboardResponse = {
     xp: number;
     sets: number;
   }>;
+  heatmapData?: number[];
 };
 
 type RecoveryResponse = {
@@ -244,6 +245,54 @@ export default function DashboardPage() {
     }
   }
 
+  const [checkedIn, setCheckedIn] = useState<boolean>(true);
+  const [showCheckinModal, setShowCheckinModal] = useState<boolean>(false);
+  const [energyLevel, setEnergyLevel] = useState<number>(3);
+  const [stressLevel, setStressLevel] = useState<number>(3);
+  const [sleepQuality, setSleepQuality] = useState<number>(3);
+  const [checkinNotes, setCheckinNotes] = useState<string>("");
+  const [submittingCheckin, setSubmittingCheckin] = useState<boolean>(false);
+  const [adaptationMessage, setAdaptationMessage] = useState<string | null>(null);
+  const [todayCheckin, setTodayCheckin] = useState<any>(null);
+
+  async function handleCheckin(e: React.FormEvent) {
+    e.preventDefault();
+    const token = getSessionToken();
+    if (!token) return;
+
+    setSubmittingCheckin(true);
+    try {
+      const res = await apiFetch<{ success: boolean; checkin: any; adaptation: { note: string } }>("/api/lifestyle/checkin", {
+        method: "POST",
+        body: JSON.stringify({
+          token,
+          energyLevel,
+          stressLevel,
+          sleepQuality,
+          freeText: checkinNotes,
+        }),
+      });
+
+      if (res.success) {
+        setCheckedIn(true);
+        setTodayCheckin(res.checkin);
+        setShowCheckinModal(false);
+        setAdaptationMessage(res.adaptation.note);
+        
+        const freshDashboard = await apiFetch<DashboardResponse>(`/api/dashboard?token=${encodeURIComponent(token)}`);
+        setDashboard(freshDashboard);
+        const freshPredictive = await apiFetch<PredictiveResponse>(`/api/agents/predictive?token=${encodeURIComponent(token)}`);
+        setPredictive(freshPredictive);
+        const freshRecovery = await apiFetch<RecoveryResponse>(`/api/agents/recovery?token=${encodeURIComponent(token)}`);
+        setRecovery(freshRecovery.recovery);
+      }
+    } catch (err) {
+      console.error("Check-in submission failed:", err);
+    } finally {
+      setSubmittingCheckin(false);
+    }
+  }
+
   useEffect(() => {
     const token = getSessionToken();
     if (!token) return;
@@ -252,11 +301,17 @@ export default function DashboardPage() {
       apiFetch<DashboardResponse>(`/api/dashboard?token=${encodeURIComponent(token)}`),
       apiFetch<RecoveryResponse>(`/api/agents/recovery?token=${encodeURIComponent(token)}`),
       apiFetch<PredictiveResponse>(`/api/agents/predictive?token=${encodeURIComponent(token)}`),
+      apiFetch<{ checkedIn: boolean; checkin: any }>(`/api/lifestyle/today?token=${encodeURIComponent(token)}`),
     ])
-      .then(([dashboardResponse, recoveryResponse, predictiveResponse]) => {
+      .then(([dashboardResponse, recoveryResponse, predictiveResponse, checkinResponse]) => {
         setDashboard(dashboardResponse);
         setRecovery(recoveryResponse.recovery);
         setPredictive(predictiveResponse);
+        setCheckedIn(checkinResponse.checkedIn);
+        setTodayCheckin(checkinResponse.checkin);
+        if (!checkinResponse.checkedIn) {
+          setShowCheckinModal(true);
+        }
       })
       .finally(() => setLoading(false));
   }, []);
@@ -278,8 +333,229 @@ export default function DashboardPage() {
   const nextLevelXp = dashboard?.levelProgress?.nextMin ?? null;
   const weeklyVolume = dashboard?.weeklyVolumeKg ?? 0;
 
+  const renderCheckinModal = () => {
+    if (!showCheckinModal) return null;
+
+    return (
+      <div style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(10, 10, 10, 0.8)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+        padding: "1.5rem",
+      }}>
+        <div className="panel" style={{
+          maxWidth: "500px",
+          width: "100%",
+          padding: "2rem",
+          background: "var(--bg-panel)",
+          border: "1px solid var(--border-strong)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "1.5rem",
+          boxShadow: "var(--shadow-lg)",
+        }}>
+          <div>
+            <div className="hero-eyebrow pill" style={{ display: "inline-block", marginBottom: "0.5rem" }}>
+              ☀️ Good Morning Check-in
+            </div>
+            <h2 className="section-heading" style={{ color: "var(--accent-strong)", margin: 0 }}>
+              How are you feeling today?
+            </h2>
+            <p className="helper-text" style={{ marginTop: "0.4rem" }}>
+              Let PulsePilot optimize today's training split and intensity weights based on your readiness.
+            </p>
+          </div>
+
+          <form onSubmit={handleCheckin} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-soft)", display: "flex", justifyContent: "space-between" }}>
+                <span>⚡ Energy Level</span>
+                <span style={{ color: "var(--accent)" }}>{energyLevel}/5</span>
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem", width: "100%" }}>
+                {[1, 2, 3, 4, 5].map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setEnergyLevel(val)}
+                    style={{
+                      flex: 1,
+                      padding: "0.6rem 0.5rem",
+                      borderRadius: "8px",
+                      border: "1px solid",
+                      borderColor: energyLevel === val ? "var(--accent)" : "var(--border)",
+                      background: energyLevel === val ? "var(--bg-strong)" : "transparent",
+                      color: energyLevel === val ? "var(--accent-strong)" : "var(--text-soft)",
+                      fontWeight: energyLevel === val ? "bold" : "normal",
+                      cursor: "pointer",
+                      fontSize: "0.8rem",
+                      transition: "all 150ms ease",
+                    }}
+                  >
+                    {["😴", "🥱", "😐", "⚡", "🔥"][val - 1]} {val}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-soft)", display: "flex", justifyContent: "space-between" }}>
+                <span>🤯 Stress Level</span>
+                <span style={{ color: "var(--accent)" }}>{stressLevel}/5</span>
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem", width: "100%" }}>
+                {[1, 2, 3, 4, 5].map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setStressLevel(val)}
+                    style={{
+                      flex: 1,
+                      padding: "0.6rem 0.5rem",
+                      borderRadius: "8px",
+                      border: "1px solid",
+                      borderColor: stressLevel === val ? "var(--accent)" : "var(--border)",
+                      background: stressLevel === val ? "var(--bg-strong)" : "transparent",
+                      color: stressLevel === val ? "var(--accent-strong)" : "var(--text-soft)",
+                      fontWeight: stressLevel === val ? "bold" : "normal",
+                      cursor: "pointer",
+                      fontSize: "0.8rem",
+                      transition: "all 150ms ease",
+                    }}
+                  >
+                    {["🧘", "🙂", "😐", "😰", "🌋"][val - 1]} {val}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-soft)", display: "flex", justifyContent: "space-between" }}>
+                <span>🌙 Sleep Quality</span>
+                <span style={{ color: "var(--accent)" }}>{sleepQuality}/5</span>
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem", width: "100%" }}>
+                {[1, 2, 3, 4, 5].map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setSleepQuality(val)}
+                    style={{
+                      flex: 1,
+                      padding: "0.6rem 0.5rem",
+                      borderRadius: "8px",
+                      border: "1px solid",
+                      borderColor: sleepQuality === val ? "var(--accent)" : "var(--border)",
+                      background: sleepQuality === val ? "var(--bg-strong)" : "transparent",
+                      color: sleepQuality === val ? "var(--accent-strong)" : "var(--text-soft)",
+                      fontWeight: sleepQuality === val ? "bold" : "normal",
+                      cursor: "pointer",
+                      fontSize: "0.8rem",
+                      transition: "all 150ms ease",
+                    }}
+                  >
+                    {["☠️", "🥱", "😴", "💤", "👑"][val - 1]} {val}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-soft)" }}>
+                📝 Lifestyle Notes / Context
+              </label>
+              <textarea
+                value={checkinNotes}
+                onChange={(e) => setCheckinNotes(e.target.value)}
+                placeholder="e.g., Sore calves, rough night sleep, heavy workload today..."
+                rows={3}
+                style={{
+                  width: "100%",
+                  background: "rgba(255, 255, 255, 0.02)",
+                  color: "var(--text)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "8px",
+                  padding: "0.75rem",
+                  fontSize: "0.9rem",
+                  outline: "none",
+                  resize: "none",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "1rem", marginTop: "0.5rem" }}>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setShowCheckinModal(false)}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                Skip for now
+              </button>
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={submittingCheckin}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                {submittingCheckin ? "Optimizing..." : "Log Check-in"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="page">
+      {renderCheckinModal()}
+
+      {adaptationMessage && (
+        <section className="panel" style={{
+          background: "linear-gradient(135deg, rgba(208, 162, 74, 0.12), rgba(179, 58, 31, 0.08))",
+          border: "1px solid var(--border-strong)",
+          padding: "1.25rem 1.5rem",
+          display: "flex",
+          gap: "1rem",
+          alignItems: "center",
+          animation: "fadeIn 300ms ease",
+        }}>
+          <span style={{ fontSize: "1.5rem" }}>🤖</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: "0.82rem", textTransform: "uppercase", color: "var(--accent-strong)", letterSpacing: "0.05em" }}>
+              PulsePilot Adaptation Active
+            </div>
+            <p style={{ fontSize: "0.95rem", color: "var(--text)", marginTop: "0.2rem", lineHeight: 1.4 }}>
+              {adaptationMessage}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAdaptationMessage(null)}
+            style={{
+              background: "transparent",
+              border: 0,
+              color: "var(--text-soft)",
+              cursor: "pointer",
+              fontSize: "1.1rem",
+              padding: "0.25rem",
+            }}
+          >
+            ✕
+          </button>
+        </section>
+      )}
+
       <section className="hero-panel">
         <div className="hero-grid">
           <div>
@@ -312,6 +588,35 @@ export default function DashboardPage() {
           </div>
 
           <div className="hero-stats">
+            {checkedIn && todayCheckin ? (
+              <div className="mini-stat" style={{ border: "1px solid var(--border-strong)", background: "rgba(208, 162, 74, 0.04)" }}>
+                <div className="mini-stat-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>Daily Readiness</span>
+                  <button type="button" onClick={() => setShowCheckinModal(true)} style={{ background: "transparent", border: 0, color: "var(--accent)", fontSize: "0.75rem", cursor: "pointer", fontWeight: "bold" }}>Update</button>
+                </div>
+                <div style={{ display: "flex", gap: "0.8rem", marginTop: "0.6rem", alignItems: "center" }}>
+                  <div style={{ fontSize: "1.5rem" }}>
+                    {todayCheckin.energyLevel >= 4 ? "🔥" : todayCheckin.energyLevel <= 2 ? "🥱" : "⚡"}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "0.95rem", fontWeight: "bold" }}>
+                      Energy: {todayCheckin.energyLevel}/5 • Stress: {todayCheckin.stressLevel}/5
+                    </div>
+                    <div className="helper-text" style={{ fontSize: "0.78rem" }}>
+                      Sleep: {todayCheckin.sleepQuality}/5 {todayCheckin.notes ? `• "${todayCheckin.notes}"` : ""}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mini-stat" style={{ border: "1px dashed var(--border-strong)", cursor: "pointer", background: "rgba(208, 162, 74, 0.02)" }} onClick={() => setShowCheckinModal(true)}>
+                <div className="mini-stat-label">Daily Readiness</div>
+                <div className="mini-stat-value" style={{ fontSize: "1.2rem", color: "var(--accent)", marginTop: "0.4rem" }}>
+                  ⚠️ Check-in pending
+                </div>
+                <div className="helper-text">Click to optimize today's split and intensity.</div>
+              </div>
+            )}
             <div className="mini-stat">
               <div className="mini-stat-label">Readiness focus</div>
               <div className="mini-stat-value is-accent">{bestRecovery.score}%</div>
@@ -539,7 +844,7 @@ export default function DashboardPage() {
             {Array.from({ length: 26 }).map((_, week) => (
               <div key={week} className="heatmap-week">
                 {Array.from({ length: 7 }).map((_, day) => {
-                  const value = HEATMAP_DATA[week * 7 + day];
+                  const value = (dashboard?.heatmapData && dashboard.heatmapData[week * 7 + day]) || 0;
                   return <div key={day} className="heatmap-cell" style={{ background: heatmapColor(value) }} />;
                 })}
               </div>
