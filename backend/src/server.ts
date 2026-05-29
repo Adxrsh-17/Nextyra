@@ -442,6 +442,32 @@ app.get("/api/agents/recovery", async (req, res) => {
   }
 });
 
+// Chat endpoint - interact with AI Coach PulsePilot
+app.post("/api/chat", async (req, res) => {
+  const { token, message, history } = req.body as {
+    token?: string;
+    message?: string;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+  };
+
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  if (!message && (!history || history.length === 0)) {
+    return res.status(400).json({ error: "Message or history is required." });
+  }
+
+  try {
+    const { handleCoachChat } = await import("./lib/chat");
+    const conversationHistory = history || [{ role: "user", content: message! }];
+    const reply = await handleCoachChat(prisma, auth.user, conversationHistory);
+    return res.json({ reply });
+  } catch (e) {
+    console.error("Chat error:", e);
+    return res.status(500).json({ error: "PulsePilot failed to respond" });
+  }
+});
+
 // Planner endpoint - generate a weekly plan for the authenticated user
 app.post("/api/agents/planner", async (req, res) => {
   const token = req.query.token as string | undefined;
@@ -639,6 +665,41 @@ app.get("/api/dashboard", async (req, res) => {
       sets: session.workout_sets.length,
     }));
 
+    // Heatmap query for last 26 weeks
+    const twentySixWeeksAgo = new Date(Date.now() - 26 * 7 * 24 * 60 * 60 * 1000);
+    const sessions26w = await prisma.workoutSession.findMany({
+      where: {
+        user_id: auth.user.id,
+        completed_at: { gte: twentySixWeeksAgo },
+      },
+      select: {
+        completed_at: true,
+        total_volume_kg: true,
+      },
+    });
+
+    const heatmapData = Array.from({ length: 26 * 7 }, () => 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startDay = new Date(today.getTime() - 181 * 24 * 60 * 60 * 1000); // 182 days total (26 weeks)
+
+    for (const session of sessions26w) {
+      if (!session.completed_at) continue;
+      const sessionDate = new Date(session.completed_at);
+      sessionDate.setHours(0, 0, 0, 0);
+      const diffDays = Math.floor((sessionDate.getTime() - startDay.getTime()) / (24 * 60 * 60 * 1000));
+      if (diffDays >= 0 && diffDays < 182) {
+        const vol = Number(session.total_volume_kg || 0);
+        let lvl = 0;
+        if (vol > 0) {
+          if (vol < 1500) lvl = 1;
+          else if (vol < 3500) lvl = 2;
+          else lvl = 3;
+        }
+        heatmapData[diffDays] = Math.max(heatmapData[diffDays], lvl);
+      }
+    }
+
     res.json({
       totalSessions: completedSessions.length,
       totalXP,
@@ -657,6 +718,7 @@ app.get("/api/dashboard", async (req, res) => {
       },
       streak: gamification.streak,
       streakFreezeAvailable: gamification.streakFreezeAvailable,
+      heatmapData,
     });
   } catch (e) {
     console.error("Dashboard error:", e);
@@ -704,6 +766,112 @@ app.post("/api/metrics", async (req, res) => {
     return res.status(201).json({ metric, reward });
   } catch (e) {
     console.error("Save metrics error:", e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/lifestyle/today", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const checkin = await prisma.lifestyleCheckin.findFirst({
+      where: {
+        user_id: auth.user.id,
+        checkin_date: today,
+      },
+    });
+
+    return res.json({ checkedIn: !!checkin, checkin: checkin ? {
+      energyLevel: checkin.energy_level,
+      stressLevel: checkin.stress_level,
+      sleepQuality: checkin.sleep_quality,
+      notes: checkin.free_text,
+    } : null });
+  } catch (e) {
+    console.error("Get today's checkin error:", e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/lifestyle/checkin", async (req, res) => {
+  const { token, energyLevel, stressLevel, sleepQuality, freeText } = req.body as {
+    token?: string;
+    energyLevel?: number;
+    stressLevel?: number;
+    sleepQuality?: number;
+    freeText?: string;
+  };
+
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  if (energyLevel === undefined || stressLevel === undefined || sleepQuality === undefined) {
+    return res.status(400).json({ error: "Missing required lifestyle fields (energyLevel, stressLevel, sleepQuality)." });
+  }
+
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const existing = await prisma.lifestyleCheckin.findFirst({
+      where: {
+        user_id: auth.user.id,
+        checkin_date: today,
+      },
+    });
+
+    let checkin;
+    if (existing) {
+      checkin = await prisma.lifestyleCheckin.update({
+        where: { id: existing.id },
+        data: {
+          energy_level: Number(energyLevel),
+          stress_level: Number(stressLevel),
+          sleep_quality: Number(sleepQuality),
+          free_text: freeText || null,
+        },
+      });
+    } else {
+      checkin = await prisma.lifestyleCheckin.create({
+        data: {
+          user_id: auth.user.id,
+          energy_level: Number(energyLevel),
+          stress_level: Number(stressLevel),
+          sleep_quality: Number(sleepQuality),
+          free_text: freeText || null,
+          checkin_date: today,
+        },
+      });
+    }
+
+    // Now run Adaptive Planning Agent automatically using this check-in context
+    const { analyzePerformance } = await import("./lib/agents");
+    const perfReport = await analyzePerformance(prisma, auth.user);
+    const underperformingMuscles = perfReport.underperformingMuscles;
+
+    const { adaptivePlan } = await import("./lib/agents");
+    const adaptation = await adaptivePlan(prisma, auth.user, {
+      skippedSessions: underperformingMuscles.map((m: string) => ({ muscleGroup: m })),
+      lifestyle: {
+        energy: Number(energyLevel),
+        stress: Number(stressLevel),
+        sleep: Number(sleepQuality),
+        notes: freeText || null,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      checkin,
+      adaptation,
+    });
+  } catch (e) {
+    console.error("Save checkin and adapt error:", e);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
