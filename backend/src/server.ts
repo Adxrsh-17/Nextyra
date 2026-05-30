@@ -442,6 +442,7 @@ app.get("/api/agents/recovery", async (req, res) => {
   }
 });
 
+<<<<<<< HEAD
 // Chat endpoint - interact with AI Coach PulsePilot
 app.post("/api/chat", async (req, res) => {
   const { token, message, history } = req.body as {
@@ -468,6 +469,8 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+=======
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
 // Planner endpoint - generate a weekly plan for the authenticated user
 app.post("/api/agents/planner", async (req, res) => {
   const token = req.query.token as string | undefined;
@@ -517,6 +520,7 @@ app.get("/api/agents/performance", async (req, res) => {
   }
 });
 
+<<<<<<< HEAD
 // Predictive intelligence endpoint - forecast strength, consistency, plateaus, and body trends
 app.get("/api/agents/predictive", async (req, res) => {
   const token = req.query.token as string | undefined;
@@ -533,6 +537,8 @@ app.get("/api/agents/predictive", async (req, res) => {
   }
 });
 
+=======
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
 // Motivation endpoint - produce motivational messages / streak alerts
 app.get("/api/agents/motivation", async (req, res) => {
   const token = req.query.token as string | undefined;
@@ -718,7 +724,10 @@ app.get("/api/dashboard", async (req, res) => {
       },
       streak: gamification.streak,
       streakFreezeAvailable: gamification.streakFreezeAvailable,
+<<<<<<< HEAD
       heatmapData,
+=======
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
     });
   } catch (e) {
     console.error("Dashboard error:", e);
@@ -770,6 +779,7 @@ app.post("/api/metrics", async (req, res) => {
   }
 });
 
+<<<<<<< HEAD
 app.get("/api/lifestyle/today", async (req, res) => {
   const token = req.query.token as string | undefined;
   const auth = await requireUser(token);
@@ -876,6 +886,8 @@ app.post("/api/lifestyle/checkin", async (req, res) => {
   }
 });
 
+=======
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
 app.get("/api/missions/today", async (req, res) => {
   const token = req.query.token as string | undefined;
   const auth = await requireUser(token);

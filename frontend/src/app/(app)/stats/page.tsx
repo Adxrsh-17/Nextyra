@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { apiFetch } from "@/lib/api";
 import Link from "next/link";
+import WorkoutHeatmap, { WorkoutHeatmapSession } from "@/components/WorkoutHeatmap";
 
 type ExerciseHistoryItem = {
   date: string;
@@ -20,6 +21,7 @@ type VolumeResponse = {
   volumeByMuscle: Record<string, number>;
 };
 
+<<<<<<< HEAD
 type PredictiveResponse = {
   generatedAt: string;
   strengthForecasts: Array<{
@@ -59,6 +61,10 @@ type PredictiveResponse = {
     value: string;
     note: string;
   }>;
+=======
+type SessionsResponse = {
+  sessions: WorkoutHeatmapSession[];
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
 };
 
 function getSessionToken() {
@@ -73,7 +79,11 @@ function formatDate(dateStr: string) {
 export default function StatsPage() {
   const [exerciseHistory, setExerciseHistory] = useState<Record<string, ExerciseHistoryItem[]>>({});
   const [volumeByMuscle, setVolumeByMuscle] = useState<Record<string, number>>({});
+<<<<<<< HEAD
   const [predictive, setPredictive] = useState<PredictiveResponse | null>(null);
+=======
+  const [sessions, setSessions] = useState<WorkoutHeatmapSession[]>([]);
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
   const [selectedExercise, setSelectedExercise] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -84,12 +94,21 @@ export default function StatsPage() {
     Promise.all([
       apiFetch<StatsResponse>(`/api/stats/exercises?token=${encodeURIComponent(token)}`),
       apiFetch<VolumeResponse>(`/api/stats/volume?token=${encodeURIComponent(token)}`),
+<<<<<<< HEAD
       apiFetch<PredictiveResponse>(`/api/agents/predictive?token=${encodeURIComponent(token)}`),
     ])
       .then(([statsData, volumeData, predictiveData]) => {
         setExerciseHistory(statsData.exerciseHistory);
         setVolumeByMuscle(volumeData.volumeByMuscle);
         setPredictive(predictiveData);
+=======
+      apiFetch<SessionsResponse>(`/api/sessions?token=${encodeURIComponent(token)}`),
+    ])
+      .then(([statsData, volumeData, sessionsData]) => {
+        setExerciseHistory(statsData.exerciseHistory);
+        setVolumeByMuscle(volumeData.volumeByMuscle);
+        setSessions(sessionsData.sessions);
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
 
         const exercises = Object.keys(statsData.exerciseHistory);
         if (exercises.length > 0) {
@@ -182,6 +201,7 @@ export default function StatsPage() {
       </section>
 
       <section className="panel">
+<<<<<<< HEAD
         <div className="panel-header">
           <div>
             <div className="section-title">Predictive intelligence</div>
@@ -218,6 +238,15 @@ export default function StatsPage() {
             <p className="feature-story-copy">{predictive?.bodyRecommendation ?? "Add at least two body metric check-ins to generate projections."}</p>
           </div>
         </div>
+=======
+        <WorkoutHeatmap
+          sessions={sessions}
+          days={364}
+          mode="annual"
+          title="Annual workout heatmap"
+          subtitle="A 52-week grid with tappable daily summaries, scaled by session volume."
+        />
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
       </section>
 
       {!hasHistory ? (

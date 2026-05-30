@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import WorkoutHeatmap, { WorkoutHeatmapSession } from "@/components/WorkoutHeatmap";
 import { apiFetch } from "@/lib/api";
 
 type DashboardResponse = {
@@ -62,6 +63,7 @@ type RecoveryResponse = {
   recovery: Record<string, number>;
 };
 
+<<<<<<< HEAD
 type PredictiveResponse = {
   generatedAt: string;
   strengthForecasts: Array<{
@@ -101,6 +103,10 @@ type PredictiveResponse = {
     value: string;
     note: string;
   }>;
+=======
+type SessionsResponse = {
+  sessions: WorkoutHeatmapSession[];
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
 };
 
 const MEMBERSHIP_PLANS = [
@@ -134,21 +140,6 @@ function formatTier(tier?: string | null) {
   if (tier === "coach_console") return "Coach Console Member";
   return tier.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
-
-const HEATMAP_DATA = Array.from({ length: 26 * 7 }, (_, index) => {
-  const rng = Math.sin(index * 9301 + 49297) * 0.5 + 0.5;
-  if (rng > 0.82) return 3;
-  if (rng > 0.65) return 2;
-  if (rng > 0.52) return 1;
-  return 0;
-});
-
-const heatmapColor = (value: number) => {
-  if (value === 0) return "rgba(255,255,255,0.04)";
-  if (value === 1) return "rgba(208, 162, 74, 0.26)";
-  if (value === 2) return "rgba(208, 162, 74, 0.5)";
-  return "linear-gradient(135deg, #b33a1f, #f0c46d)";
-};
 
 function formatMuscleName(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -193,7 +184,11 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [recovery, setRecovery] = useState<Record<string, number>>({});
+<<<<<<< HEAD
   const [predictive, setPredictive] = useState<PredictiveResponse | null>(null);
+=======
+  const [sessions, setSessions] = useState<WorkoutHeatmapSession[]>([]);
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
   const [loading, setLoading] = useState(true);
   const [submittingPlan, setSubmittingPlan] = useState<string | null>(null);
   const [completingMissionId, setCompletingMissionId] = useState<string | null>(null);
@@ -219,6 +214,7 @@ export default function DashboardPage() {
   }
 
   async function completeMission(missionId: string) {
+<<<<<<< HEAD
     const token = getSessionToken();
     if (!token) return;
 
@@ -285,12 +281,36 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
+=======
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
     const token = getSessionToken();
     if (!token) return;
+
+    setCompletingMissionId(missionId);
+    try {
+      await apiFetch(`/api/missions/${missionId}/complete`, {
+        method: "PATCH",
+        body: JSON.stringify({ token }),
+      });
+      window.location.reload();
+    } catch (err) {
+      console.error("Mission completion failed:", err);
+    } finally {
+      setCompletingMissionId(null);
+    }
+  }
+
+  useEffect(() => {
+    const token = getSessionToken();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
 
     Promise.all([
       apiFetch<DashboardResponse>(`/api/dashboard?token=${encodeURIComponent(token)}`),
       apiFetch<RecoveryResponse>(`/api/agents/recovery?token=${encodeURIComponent(token)}`),
+<<<<<<< HEAD
       apiFetch<PredictiveResponse>(`/api/agents/predictive?token=${encodeURIComponent(token)}`),
       apiFetch<{ checkedIn: boolean; checkin: any }>(`/api/lifestyle/today?token=${encodeURIComponent(token)}`),
     ])
@@ -303,6 +323,14 @@ export default function DashboardPage() {
         if (!checkinResponse.checkedIn) {
           setShowCheckinModal(true);
         }
+=======
+      apiFetch<SessionsResponse>(`/api/sessions?token=${encodeURIComponent(token)}`),
+    ])
+      .then(([dashboardResponse, recoveryResponse, sessionsResponse]) => {
+        setDashboard(dashboardResponse);
+        setRecovery(recoveryResponse.recovery);
+        setSessions(sessionsResponse.sessions);
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
       })
       .finally(() => setLoading(false));
   }, []);
@@ -733,6 +761,7 @@ export default function DashboardPage() {
             <div>
               <div className="section-title">Daily missions</div>
               <div className="section-heading">Three targeted wins for today</div>
+<<<<<<< HEAD
             </div>
             <div className="panel-note">Each mission is worth XP and resets daily.</div>
           </div>
@@ -828,9 +857,12 @@ export default function DashboardPage() {
             <div>
               <div className="section-title">Pattern analysis</div>
               <div className="section-heading">Consistency heatmap</div>
+=======
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
             </div>
-            <div className="panel-note">A compact rhythm view to reinforce daily accountability.</div>
+            <div className="panel-note">Each mission is worth XP and resets daily.</div>
           </div>
+<<<<<<< HEAD
           <div className="heatmap">
             {Array.from({ length: 26 }).map((_, week) => (
               <div key={week} className="heatmap-week">
@@ -839,16 +871,103 @@ export default function DashboardPage() {
                   return <div key={day} className="heatmap-cell" style={{ background: heatmapColor(value) }} />;
                 })}
               </div>
+=======
+          <div className="sessions-grid">
+            {(dashboard?.missions ?? []).map((mission) => (
+              <article className="session-card" key={mission.id}>
+                <div className="session-top">
+                  <div className="session-title">{mission.is_completed ? "Completed" : "Active"}</div>
+                  <div className="pill">+{mission.xp_reward ?? 75} XP</div>
+                </div>
+                <p className="helper-text" style={{ marginTop: "0.5rem" }}>{mission.description}</p>
+                {!mission.is_completed ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => completeMission(mission.id)}
+                    disabled={completingMissionId === mission.id}
+                    style={{ marginTop: "1rem", width: "100%", justifyContent: "center" }}
+                  >
+                    {completingMissionId === mission.id ? "Completing..." : "Mark complete"}
+                  </button>
+                ) : null}
+              </article>
+>>>>>>> f762cfe (Completed Phase 6 -heatmap history)
             ))}
+            {!loading && !(dashboard?.missions?.length ?? 0) ? <div className="panel-empty">No missions generated yet.</div> : null}
           </div>
-          <div className="legend">
-            <span>Light</span>
-            <span className="heatmap-cell" style={{ width: "0.8rem", background: heatmapColor(0) }} />
-            <span className="heatmap-cell" style={{ width: "0.8rem", background: heatmapColor(1) }} />
-            <span className="heatmap-cell" style={{ width: "0.8rem", background: heatmapColor(2) }} />
-            <span className="heatmap-cell" style={{ width: "0.8rem", background: heatmapColor(3) }} />
-            <span>Dense</span>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="section-title">Badges</div>
+              <div className="section-heading">Earned achievements</div>
+            </div>
           </div>
+          <div className="plan-feature-list" style={{ marginBottom: "1rem" }}>
+            {(dashboard?.badges ?? []).length ? dashboard?.badges?.map((badge) => (
+              <span key={badge.id} className="pill">{badge.icon ?? "🏅"} {badge.name}</span>
+            )) : <span className="pill">No badges yet</span>}
+          </div>
+          <div className="helper-text">
+            Unlocks are automatic once you hit the underlying condition, and the system keeps the badge history for your profile.
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="section-title">Challenge board</div>
+            <div className="section-heading">Weekly fitness challenge</div>
+          </div>
+        </div>
+        <div className="feature-story-card">
+          <div className="feature-kicker">{dashboard?.weeklyChallenge?.title ?? "Weekly challenge"}</div>
+          <p className="feature-story-copy">{dashboard?.weeklyChallenge?.description ?? "Log more volume this week to generate a challenge."}</p>
+          {dashboard?.weeklyChallenge ? (
+            <div className="progress-track" style={{ marginTop: "1rem" }}>
+              <div
+                className="progress-fill"
+                style={{ width: `${Math.max(0, Math.min(100, (dashboard.weeklyChallenge.currentVolumeKg / Math.max(1, dashboard.weeklyChallenge.targetVolumeKg)) * 100))}%` }}
+              />
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="section-title">Monthly challenge</div>
+            <div className="section-heading">Long-range progression goal</div>
+          </div>
+        </div>
+        <div className="feature-story-card">
+          <div className="feature-kicker">{dashboard?.monthlyChallenge?.title ?? "Monthly challenge"}</div>
+          <p className="feature-story-copy">{dashboard?.monthlyChallenge?.description ?? "Monthly challenges are generated from your 30-day trend."}</p>
+          {dashboard?.monthlyChallenge ? (
+            <div className="progress-track" style={{ marginTop: "1rem" }}>
+              <div
+                className="progress-fill"
+                style={{ width: `${Math.max(0, Math.min(100, (dashboard.monthlyChallenge.currentSessions / Math.max(1, dashboard.monthlyChallenge.targetSessions)) * 100))}%` }}
+              />
+            </div>
+          ) : null}
+          {dashboard?.monthlyChallenge?.shareText ? <div className="helper-text" style={{ marginTop: "0.75rem" }}>{dashboard.monthlyChallenge.shareText}</div> : null}
+        </div>
+      </section>
+
+      <section className="content-grid">
+        <div className="panel">
+          <WorkoutHeatmap
+            sessions={sessions}
+            days={7}
+            mode="compact"
+            title="Last 7 days heatmap strip"
+            subtitle="A fast read on weekly consistency and training density."
+          />
         </div>
 
         <div className="panel">
