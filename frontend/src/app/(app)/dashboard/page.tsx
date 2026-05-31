@@ -109,25 +109,29 @@ type SessionsResponse = {
 >>>>>>> f762cfe (Completed Phase 6 -heatmap history)
 };
 
+type SessionsResponse = {
+  sessions: WorkoutHeatmapSession[];
+};
+
 const MEMBERSHIP_PLANS = [
   {
     id: "lift_start",
     name: "Lift Start",
-    price: "$9/mo",
+    price: "₹999/mo",
     blurb: "For solo lifters who want smart logging and daily motivation.",
     features: ["Workout logging", "History and XP", "Daily training brief"],
   },
   {
     id: "momentum_pro",
     name: "Momentum Pro",
-    price: "$19/mo",
+    price: "₹1,999/mo",
     blurb: "For serious gym users who want PulsePilot adapting the workout to how they actually feel.",
     features: ["PulsePilot agent", "Recovery dashboard", "Adaptive day plans"],
   },
   {
     id: "coach_console",
     name: "Coach Console",
-    price: "$49/mo",
+    price: "₹4,999/mo",
     blurb: "For trainers managing clients with structure, accountability, and shared plans.",
     features: ["Multi-athlete support", "Client progress view", "Program oversight"],
   },
@@ -180,15 +184,27 @@ function getDailyBrief(day: number, bestRecoveryMuscle: string, totalSessions: n
   };
 }
 
+function heatmapColor(value: number) {
+  if (value <= 0) return "rgba(255,255,255,0.03)";
+  if (value < 50) return "rgba(208, 162, 74, 0.18)";
+  if (value < 150) return "rgba(208, 162, 74, 0.34)";
+  if (value < 300) return "rgba(208, 162, 74, 0.52)";
+  return "rgba(208, 162, 74, 0.78)";
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [recovery, setRecovery] = useState<Record<string, number>>({});
 <<<<<<< HEAD
   const [predictive, setPredictive] = useState<PredictiveResponse | null>(null);
+<<<<<<< HEAD
 =======
   const [sessions, setSessions] = useState<WorkoutHeatmapSession[]>([]);
 >>>>>>> f762cfe (Completed Phase 6 -heatmap history)
+=======
+  const [sessions, setSessions] = useState<WorkoutHeatmapSession[]>([]);
+>>>>>>> 4f49380 (add Basic Payment Setup)
   const [loading, setLoading] = useState(true);
   const [submittingPlan, setSubmittingPlan] = useState<string | null>(null);
   const [completingMissionId, setCompletingMissionId] = useState<string | null>(null);
@@ -284,7 +300,10 @@ export default function DashboardPage() {
 =======
 >>>>>>> f762cfe (Completed Phase 6 -heatmap history)
     const token = getSessionToken();
-    if (!token) return;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
 
     setCompletingMissionId(missionId);
     try {
@@ -313,8 +332,9 @@ export default function DashboardPage() {
 <<<<<<< HEAD
       apiFetch<PredictiveResponse>(`/api/agents/predictive?token=${encodeURIComponent(token)}`),
       apiFetch<{ checkedIn: boolean; checkin: any }>(`/api/lifestyle/today?token=${encodeURIComponent(token)}`),
+      apiFetch<SessionsResponse>(`/api/sessions?token=${encodeURIComponent(token)}`),
     ])
-      .then(([dashboardResponse, recoveryResponse, predictiveResponse, checkinResponse]) => {
+      .then(([dashboardResponse, recoveryResponse, predictiveResponse, checkinResponse, sessionsResponse]) => {
         setDashboard(dashboardResponse);
         setRecovery(recoveryResponse.recovery);
         setPredictive(predictiveResponse);
@@ -323,6 +343,7 @@ export default function DashboardPage() {
         if (!checkinResponse.checkedIn) {
           setShowCheckinModal(true);
         }
+<<<<<<< HEAD
 =======
       apiFetch<SessionsResponse>(`/api/sessions?token=${encodeURIComponent(token)}`),
     ])
@@ -331,6 +352,9 @@ export default function DashboardPage() {
         setRecovery(recoveryResponse.recovery);
         setSessions(sessionsResponse.sessions);
 >>>>>>> f762cfe (Completed Phase 6 -heatmap history)
+=======
+        setSessions(sessionsResponse.sessions);
+>>>>>>> 4f49380 (add Basic Payment Setup)
       })
       .finally(() => setLoading(false));
   }, []);
@@ -860,7 +884,11 @@ export default function DashboardPage() {
 =======
 >>>>>>> f762cfe (Completed Phase 6 -heatmap history)
             </div>
+<<<<<<< HEAD
             <div className="panel-note">Each mission is worth XP and resets daily.</div>
+=======
+            <div className="panel-note">Recent training density across the year.</div>
+>>>>>>> 4f49380 (add Basic Payment Setup)
           </div>
 <<<<<<< HEAD
           <div className="heatmap">

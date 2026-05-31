@@ -2,7 +2,9 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
-import { stripe } from "./lib/stripe";
+import crypto from "crypto";
+import { hasRazorpayKeys, razorpay, razorpayKeyId, razorpayWebhookSecret } from "./lib/razorpay";
+import { getSubscriptionPlan } from "./lib/paymentPlans";
 import { generateText } from "./lib/llm";
 
 dotenv.config();
@@ -1037,121 +1039,272 @@ app.get("/api/stats/volume", async (req, res) => {
 });
 
 app.post("/api/payments/create-checkout-session", async (req, res) => {
+  return handlePaymentOrderCreation(req, res);
+});
+
+app.post("/api/payments/create-order", async (req, res) => {
+  return handlePaymentOrderCreation(req, res);
+});
+
+async function handlePaymentOrderCreation(req: express.Request, res: express.Response) {
   const { token, plan } = req.body as { token?: string; plan?: string };
   const auth = await requireUser(token);
   if (!auth.user) return res.status(401).json(auth.error);
 
-  if (!plan || !["lift_start", "momentum_pro", "coach_console"].includes(plan)) {
+  const selectedPlan = plan ? getSubscriptionPlan(plan) : null;
+  if (!selectedPlan) {
     return res.status(400).json({ error: "Invalid plan selection" });
   }
 
-  const planNames: Record<string, string> = {
-    lift_start: "Lift Start Membership",
-    momentum_pro: "Momentum Pro Membership",
-    coach_console: "Coach Console Membership",
-  };
-
-  const planPrices: Record<string, number> = {
-    lift_start: 900, // $9.00
-    momentum_pro: 1900, // $19.00
-    coach_console: 4900, // $49.00
-  };
+  const isGatewayReady = hasRazorpayKeys() && Boolean(razorpay && razorpayKeyId);
 
   try {
-    const isMock = !process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.startsWith("sk_test_51PxxxxMock");
+    const receipt = `nx_${auth.user.id.slice(0, 8)}_${selectedPlan.id}_${Date.now()}`;
+    const upiVpa = process.env.DEMO_UPI_VPA || "demo@nextyra";
+    const upiIntent = `upi://pay?pa=${encodeURIComponent(upiVpa)}&pn=${encodeURIComponent("Nextyra Fitness")}&am=${encodeURIComponent((selectedPlan.amountPaise / 100).toFixed(2))}&cu=INR&tn=${encodeURIComponent(selectedPlan.name + " subscription")}`;
 
-    if (isMock) {
-      const mockSessionUrl = `http://localhost:3000/payment/success?session_id=mock_session_${Date.now()}&plan=${plan}`;
-      return res.status(200).json({ url: mockSessionUrl });
+    const order = isGatewayReady
+      ? await razorpay!.orders.create({
+          amount: selectedPlan.amountPaise,
+          currency: selectedPlan.currency,
+          receipt,
+          notes: {
+            userId: auth.user.id,
+            planId: selectedPlan.id,
+            planName: selectedPlan.name,
+          },
+        })
+      : {
+          id: `demo_${auth.user.id.slice(0, 8)}_${selectedPlan.id}_${Date.now()}`,
+          amount: selectedPlan.amountPaise,
+          currency: selectedPlan.currency,
+          receipt,
+          notes: {
+            userId: auth.user.id,
+            planId: selectedPlan.id,
+            planName: selectedPlan.name,
+          },
+          status: "created",
+          created_at: new Date().toISOString(),
+        };
+
+    let storageReady = true;
+    try {
+      await prisma.subscriptionOrder.create({
+        data: {
+          user_id: auth.user.id,
+          plan_id: selectedPlan.id,
+          gateway: isGatewayReady ? "razorpay" : "demo-upi",
+          gateway_order_id: order.id,
+          amount_paise: selectedPlan.amountPaise,
+          currency: selectedPlan.currency,
+          status: "pending",
+          receipt,
+          payload: isGatewayReady ? (order as any) : ({ ...order, demo: true, upiIntent, payeeVpa: upiVpa } as any),
+        },
+      });
+
+      await prisma.subscription.upsert({
+        where: { user_id: auth.user.id },
+        update: {
+          plan_id: selectedPlan.id,
+          status: "pending",
+          gateway: isGatewayReady ? "razorpay" : "demo-upi",
+          gateway_order_id: order.id,
+          amount_paise: selectedPlan.amountPaise,
+          currency: selectedPlan.currency,
+          failure_reason: null,
+          gateway_payment_id: null,
+          activated_at: null,
+          failed_at: null,
+          payload: isGatewayReady ? (order as any) : ({ demo: true, upiIntent, payeeVpa: upiVpa } as any),
+        },
+        create: {
+          user_id: auth.user.id,
+          plan_id: selectedPlan.id,
+          status: "pending",
+          gateway: isGatewayReady ? "razorpay" : "demo-upi",
+          gateway_order_id: order.id,
+          amount_paise: selectedPlan.amountPaise,
+          currency: selectedPlan.currency,
+          payload: isGatewayReady ? (order as any) : ({ demo: true, upiIntent, payeeVpa: upiVpa } as any),
+        },
+      });
+    } catch (storageErr: any) {
+      if (storageErr?.code === "P2021" || storageErr?.meta?.table) {
+        storageReady = false;
+        console.warn("Payment tables are not available yet; serving the demo UPI QR fallback.");
+      } else {
+        throw storageErr;
+      }
     }
 
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: planNames[plan],
-              description: `Nextyra Fitness - ${planNames[plan]} subscription`,
-            },
-            unit_amount: planPrices[plan],
-            recurring: { interval: "month" },
-          },
-          quantity: 1,
-        },
-      ],
-      mode: "subscription",
-      success_url: `http://localhost:3000/payment/success?session_id={CHECKOUT_SESSION_ID}&plan=${plan}`,
-      cancel_url: `http://localhost:3000/payment/cancel`,
-      metadata: {
-        userId: auth.user.id,
-        plan,
-      },
-    });
+    const finalDemoCheckout = !isGatewayReady || !storageReady;
 
-    return res.status(200).json({ url: session.url });
+    return res.status(200).json({
+      orderId: order.id,
+      amount: selectedPlan.amountPaise,
+      currency: selectedPlan.currency,
+      keyId: finalDemoCheckout ? null : razorpayKeyId,
+      plan: selectedPlan,
+      demoCheckout: finalDemoCheckout,
+      upiIntent: finalDemoCheckout ? upiIntent : null,
+      payeeVpa: finalDemoCheckout ? upiVpa : null,
+    });
   } catch (e) {
     console.error("Create checkout session failed:", e);
     return res.status(500).json({ error: "Payment checkout initialization failed" });
   }
-});
+}
 
 app.post("/api/payments/webhook", async (req: any, res) => {
-  const sig = req.headers["stripe-signature"];
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const sig = req.headers["x-razorpay-signature"] as string | undefined;
 
-  if (!sig || !webhookSecret) {
+  if (!sig || !razorpayWebhookSecret || !req.rawBody) {
     return res.status(400).json({ error: "Missing webhook headers" });
   }
 
-  let event;
+  const expectedSignature = crypto.createHmac("sha256", razorpayWebhookSecret).update(req.rawBody).digest("hex");
+  const expectedBuffer = Buffer.from(expectedSignature, "utf8");
+  const receivedBuffer = Buffer.from(sig, "utf8");
+
+  if (expectedBuffer.length !== receivedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)) {
+    return res.status(400).json({ error: "Webhook signature verification failed" });
+  }
+
+  let event: any;
   try {
-    event = stripe.webhooks.constructEvent(req.rawBody, sig, webhookSecret);
+    event = JSON.parse(req.rawBody.toString("utf8"));
   } catch (err: any) {
-    console.error("Webhook signature verification failed:", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    return res.status(400).json({ error: "Invalid webhook payload" });
   }
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object as any;
-    const userId = session.metadata?.userId;
-    const plan = session.metadata?.plan;
+  const paymentEntity = event.payload?.payment?.entity;
+  const orderEntity = event.payload?.order?.entity;
+  const gatewayOrderId = paymentEntity?.order_id ?? orderEntity?.id;
 
-    if (userId && plan) {
-      try {
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            subscription_tier: plan,
-            stripe_customer_id: session.customer?.toString() || null,
-            stripe_subscription_id: session.subscription?.toString() || null,
-          },
-        });
-        console.log(`Successfully upgraded user ${userId} to ${plan}`);
-      } catch (dbErr) {
-        console.error("Database update from webhook failed:", dbErr);
-      }
-    }
+  if (!gatewayOrderId) {
+    return res.json({ received: true });
   }
 
-  if (event.type === "customer.subscription.deleted") {
-    const subscription = event.data.object as any;
-    try {
-      await prisma.user.update({
-        where: { stripe_subscription_id: subscription.id },
+  const paymentOrder = await prisma.subscriptionOrder.findUnique({ where: { gateway_order_id: gatewayOrderId } });
+  if (!paymentOrder) {
+    return res.json({ received: true });
+  }
+
+  if (event.event === "payment.captured" || event.event === "order.paid") {
+    await prisma.$transaction([
+      prisma.subscriptionOrder.update({
+        where: { id: paymentOrder.id },
         data: {
-          subscription_tier: "free",
-          stripe_subscription_id: null,
+          status: "active",
+          gateway_payment_id: paymentEntity?.id ?? paymentOrder.gateway_payment_id,
+          gateway_signature: sig,
+          payload: event,
+          paid_at: new Date(),
+          failure_reason: null,
         },
-      });
-      console.log(`Subscription deleted: ${subscription.id}`);
-    } catch (dbErr) {
-      console.error("Database subscription delete failed:", dbErr);
-    }
+      }),
+      prisma.subscription.upsert({
+        where: { user_id: paymentOrder.user_id },
+        update: {
+          plan_id: paymentOrder.plan_id,
+          status: "active",
+          gateway: paymentOrder.gateway,
+          gateway_order_id: paymentOrder.gateway_order_id,
+          gateway_payment_id: paymentEntity?.id ?? paymentOrder.gateway_payment_id ?? undefined,
+          amount_paise: paymentOrder.amount_paise,
+          currency: paymentOrder.currency,
+          activated_at: new Date(),
+          failed_at: null,
+          failure_reason: null,
+          payload: event,
+        },
+        create: {
+          user_id: paymentOrder.user_id,
+          plan_id: paymentOrder.plan_id,
+          status: "active",
+          gateway: paymentOrder.gateway,
+          gateway_order_id: paymentOrder.gateway_order_id,
+          gateway_payment_id: paymentEntity?.id ?? paymentOrder.gateway_payment_id ?? undefined,
+          amount_paise: paymentOrder.amount_paise,
+          currency: paymentOrder.currency,
+          activated_at: new Date(),
+          payload: event,
+        },
+      }),
+      prisma.user.update({
+        where: { id: paymentOrder.user_id },
+        data: { subscription_tier: paymentOrder.plan_id },
+      }),
+    ]);
   }
 
-  res.json({ received: true });
+  if (event.event === "payment.failed") {
+    const failureReason = paymentEntity?.error_description || paymentEntity?.error_code || "Payment failed";
+    await prisma.$transaction([
+      prisma.subscriptionOrder.update({
+        where: { id: paymentOrder.id },
+        data: {
+          status: "failed",
+          gateway_payment_id: paymentEntity?.id ?? paymentOrder.gateway_payment_id,
+          gateway_signature: sig,
+          payload: event,
+          failed_at: new Date(),
+          failure_reason: failureReason,
+        },
+      }),
+      prisma.subscription.upsert({
+        where: { user_id: paymentOrder.user_id },
+        update: {
+          plan_id: paymentOrder.plan_id,
+          status: "failed",
+          gateway: paymentOrder.gateway,
+          gateway_order_id: paymentOrder.gateway_order_id,
+          gateway_payment_id: paymentEntity?.id ?? paymentOrder.gateway_payment_id ?? undefined,
+          amount_paise: paymentOrder.amount_paise,
+          currency: paymentOrder.currency,
+          failed_at: new Date(),
+          failure_reason: failureReason,
+          payload: event,
+        },
+        create: {
+          user_id: paymentOrder.user_id,
+          plan_id: paymentOrder.plan_id,
+          status: "failed",
+          gateway: paymentOrder.gateway,
+          gateway_order_id: paymentOrder.gateway_order_id,
+          gateway_payment_id: paymentEntity?.id ?? paymentOrder.gateway_payment_id ?? undefined,
+          amount_paise: paymentOrder.amount_paise,
+          currency: paymentOrder.currency,
+          failed_at: new Date(),
+          failure_reason: failureReason,
+          payload: event,
+        },
+      }),
+    ]);
+  }
+
+  return res.json({ received: true });
+});
+
+app.get("/api/payments/orders/:orderId", async (req, res) => {
+  const token = req.query.token as string | undefined;
+  const auth = await requireUser(token);
+  if (!auth.user) return res.status(401).json(auth.error);
+
+  const { orderId } = req.params;
+  const order = await prisma.subscriptionOrder.findFirst({
+    where: { gateway_order_id: orderId, user_id: auth.user.id },
+  });
+
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+
+  const subscription = await prisma.subscription.findUnique({ where: { user_id: auth.user.id } });
+
+  return res.json({ order, subscription });
 });
 
 app.post("/api/payments/mock-success", async (req, res) => {

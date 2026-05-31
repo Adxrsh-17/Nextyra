@@ -4,7 +4,8 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "./AuthProvider";
 
-const PUBLIC_ROUTES = new Set(["/login", "/signup"]);
+const PUBLIC_ROUTES = new Set(["/login", "/signup", "/payment/checkout", "/payment/success", "/payment/cancel"]);
+const REDIRECT_TO_DASHBOARD_ROUTES = new Set(["/login", "/signup"]);
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const { ready, user } = useAuth();
@@ -32,7 +33,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (PUBLIC_ROUTES.has(pathname)) {
+      if (REDIRECT_TO_DASHBOARD_ROUTES.has(pathname)) {
         router.replace("/dashboard");
       }
     }
@@ -61,7 +62,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     if (isOnboarded && pathname === "/onboard") {
       return null;
     }
-    if (PUBLIC_ROUTES.has(pathname)) {
+    if (REDIRECT_TO_DASHBOARD_ROUTES.has(pathname)) {
       return null;
     }
   }

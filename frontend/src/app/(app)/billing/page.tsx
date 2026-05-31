@@ -3,30 +3,9 @@
 import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/api";
+import { SUBSCRIPTION_PLANS } from "@/lib/paymentPlans";
 
-const MEMBERSHIP_PLANS = [
-  {
-    id: "lift_start",
-    name: "Lift Start",
-    price: "$9/mo",
-    blurb: "For solo lifters who want smart logging and daily motivation.",
-    features: ["Workout logging", "History and XP", "Daily training brief"],
-  },
-  {
-    id: "momentum_pro",
-    name: "Momentum Pro",
-    price: "$19/mo",
-    blurb: "For serious gym users who want PulsePilot adapting the workout to how they actually feel.",
-    features: ["PulsePilot agent", "Recovery dashboard", "Adaptive day plans"],
-  },
-  {
-    id: "coach_console",
-    name: "Coach Console",
-    price: "$49/mo",
-    blurb: "For trainers managing clients with structure, accountability, and shared plans.",
-    features: ["Multi-athlete support", "Client progress view", "Program oversight"],
-  },
-];
+const MEMBERSHIP_PLANS = Object.values(SUBSCRIPTION_PLANS);
 
 function formatTier(tier?: string | null) {
   if (!tier || tier === "free") return "Free Tier";
@@ -97,7 +76,7 @@ export default function BillingPage() {
           return (
             <article key={plan.name} className="plan-card" style={{ display: "flex", flexDirection: "column", height: "100%", padding: "2rem" }}>
               <div className="plan-name" style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--text)" }}>{plan.name}</div>
-              <div className="plan-price" style={{ fontSize: "2.2rem", fontWeight: 800, marginBlock: "0.75rem", color: "var(--accent-strong)" }}>{plan.price}</div>
+              <div className="plan-price" style={{ fontSize: "2.2rem", fontWeight: 800, marginBlock: "0.75rem", color: "var(--accent-strong)" }}>{plan.priceLabel}</div>
               <p className="helper-text" style={{ lineHeight: 1.6, marginBottom: "1.5rem", fontSize: "0.92rem", flex: "1" }}>{plan.blurb}</p>
               
               <div style={{ borderTop: "1px solid var(--border)", marginBlock: "1.5rem", paddingTop: "1.5rem" }}>
